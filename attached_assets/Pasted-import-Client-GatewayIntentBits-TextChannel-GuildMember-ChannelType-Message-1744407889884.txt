@@ -1,0 +1,1076 @@
+import { 
+  Client, 
+  GatewayIntentBits, 
+  TextChannel, 
+  GuildMember, 
+  ChannelType, 
+  Message 
+} from 'discord.js';
+import { Server } from 'http';
+import { log } from './vite';
+import { IStorage } from './storage';
+import { 
+  startAutoSpawns,
+  stopAutoSpawns,
+  handleSpawnPokemon,
+  handleTeamRocketEncounter
+} from './pokemon-spawns';
+import {
+  handleNpcBattle,
+  handleNpcBattleWithSound,
+  handleRankedBattle,
+  handleRankedBattleWithSound
+} from './battles';
+import {
+  handleTournamentCreate,
+  handleTournamentJoin,
+  handleTournamentStart,
+  handleTournamentStatus,
+  handleTournamentBracket
+} from './tournaments';
+import { InsertUser, ActivityType } from '@shared/schema';
+import { handleStarterCommand } from './commands/starter-command';
+
+// Channel IDs
+const WELCOME_CHANNEL_ID = '1341761244868378665';
+const NPC_BATTLES_CHANNEL_ID = '1360076655175139378';
+const RANKED_BATTLES_CHANNEL_ID = '1351764174782468149';
+const RENTAL_BATTLES_CHANNEL_ID = '1351783976804552744';
+const POKEMON_SPAWNS_CHANNEL_ID = '1360096781525848225';
+const SERVER_ID = '895398632533155902';
+const BOT_OWNER_ID = '521390831983394817';
+
+// Voice Channel IDs
+const AI_BATTLE_VOICE_CHANNEL_ID = 'PokeVenture A.I with sound (beta)';
+const RANKED_BATTLE_VOICE_CHANNEL_ID = 'Ranked battles with sounds (beta)';
+
+// Commands
+const COMMANDS = {
+  WEAKEN: '!weaken',
+  REGISTER: '!register',
+  NPC: '!npc',
+  NPC_SOUND: '!npcs', // NPC battle with sound
+  RANKED_BATTLE: '!rb',
+  RANKED_BATTLE_SOUND: '!rbs', // Ranked battle with sound
+  SLOT: '!slot',
+  CATCH: '!catch',
+  POKEDEX: '!pokedex',
+  PROFILE: '!profile',
+  TEAM: '!team',
+  STORAGE: '!storage',
+  TRADE: '!trade',
+  SHOP: '!shop',
+  POKECENTER: '!pokecenter',
+  LEADERBOARD: '!leaderboard',
+  DAILY: '!daily',
+  QUEST: '!quest',
+  BADGES: '!badges',
+  TOURNAMENT: '!tournament', // Tournament commands
+  TOURNAMENT_CREATE: '!tcreate',
+  TOURNAMENT_JOIN: '!tjoin',
+  TOURNAMENT_START: '!tstart',
+  TOURNAMENT_STATUS: '!tstatus',
+  TOURNAMENT_BRACKET: '!tbracket',
+  BOT: '!bot', // Bot info command
+  SPAWN: '!spawn', // Admin command to manually spawn a Pokemon
+  OP: '!op', // Admin command
+  START: '!start', // Start command
+  DELETE_ACCOUNT: '!del', // Delete account command
+  TEAMROCKET: '!teamrocket', // Team Rocket command
+  STARTER: '!starter', // Starter Pokémon selection
+  UI: '!ui', // Get dashboard UI link (Alpha role only)
+  INVITE: '!invite', // Invite bot to another server
+  AI: '!ai' // AI question answering
+};
+
+// Define allowed channels for each command
+const ALLOWED_CHANNELS: Record<string, string[]> = {
+  [COMMANDS.WEAKEN]: [POKEMON_SPAWNS_CHANNEL_ID],
+  [COMMANDS.REGISTER]: [WELCOME_CHANNEL_ID],
+  [COMMANDS.NPC]: [NPC_BATTLES_CHANNEL_ID],
+  [COMMANDS.NPC_SOUND]: [NPC_BATTLES_CHANNEL_ID],
+  [COMMANDS.RANKED_BATTLE]: [RANKED_BATTLES_CHANNEL_ID],
+  [COMMANDS.RANKED_BATTLE_SOUND]: [RANKED_BATTLES_CHANNEL_ID],
+  [COMMANDS.SLOT]: [RENTAL_BATTLES_CHANNEL_ID],
+  [COMMANDS.CATCH]: [POKEMON_SPAWNS_CHANNEL_ID],
+  [COMMANDS.SPAWN]: [POKEMON_SPAWNS_CHANNEL_ID], // Admin only
+  [COMMANDS.TEAMROCKET]: [NPC_BATTLES_CHANNEL_ID], //Team Rocket in NPC battles
+  [COMMANDS.STARTER]: [NPC_BATTLES_CHANNEL_ID], // Starter selection in NPC battles channel
+  // Tournament commands - can be used in ranked battles channel
+  [COMMANDS.TOURNAMENT]: [RANKED_BATTLES_CHANNEL_ID],
+  [COMMANDS.TOURNAMENT_CREATE]: [RANKED_BATTLES_CHANNEL_ID],
+  [COMMANDS.TOURNAMENT_JOIN]: [RANKED_BATTLES_CHANNEL_ID],
+  [COMMANDS.TOURNAMENT_START]: [RANKED_BATTLES_CHANNEL_ID],
+  [COMMANDS.TOURNAMENT_STATUS]: [RANKED_BATTLES_CHANNEL_ID],
+  [COMMANDS.TOURNAMENT_BRACKET]: [RANKED_BATTLES_CHANNEL_ID],
+  // These commands can be used in any channel
+  [COMMANDS.POKEDEX]: [],
+  [COMMANDS.PROFILE]: [],
+  [COMMANDS.TEAM]: [],
+  [COMMANDS.STORAGE]: [],
+  [COMMANDS.SHOP]: [],
+  [COMMANDS.POKECENTER]: [],
+  [COMMANDS.LEADERBOARD]: [],
+  [COMMANDS.DAILY]: [],
+  [COMMANDS.BADGES]: [],
+  [COMMANDS.QUEST]: [],
+  [COMMANDS.TRADE]: [],
+  [COMMANDS.BOT]: [], // Bot info can be used anywhere
+  [COMMANDS.OP]: [], // Admin only
+  [COMMANDS.START]: [], // Start command can be used anywhere
+  [COMMANDS.UI]: [] // UI dashboard link (Alpha role only)
+};
+
+// Channel name mapping for error messages
+const CHANNEL_NAMES: Record<string, string> = {
+  [WELCOME_CHANNEL_ID]: "welcome",
+  [NPC_BATTLES_CHANNEL_ID]: "npc-battles",
+  [RANKED_BATTLES_CHANNEL_ID]: "ranked-battles",
+  [RENTAL_BATTLES_CHANNEL_ID]: "rental-battles",
+  [POKEMON_SPAWNS_CHANNEL_ID]: "pokemon-spawns"
+};
+
+// Create Discord client
+let client: Client | null = null;
+
+export async function setupDiscordBot(server: Server, storage: IStorage): Promise<void> {
+  // Check for Discord token
+  if (!process.env.DISCORD_TOKEN) {
+    log('Missing DISCORD_TOKEN environment variable, bot will not start', 'discord');
+    return;
+  }
+
+  // Create Discord client with necessary intents
+  client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+      GatewayIntentBits.GuildMembers,
+    ],
+  });
+
+  // Function to check if command is allowed in current channel
+  async function validateCommandChannel(message: Message, command: string): Promise<boolean> {
+    const allowedChannels = ALLOWED_CHANNELS[command];
+
+    // If empty array, command is allowed in all channels
+    if (allowedChannels.length === 0) {
+      return true;
+    }
+
+    // Check if current channel is allowed
+    if (allowedChannels.includes(message.channelId)) {
+      return true;
+    }
+
+    // Command used in wrong channel, inform the user
+    const allowedChannelNames = allowedChannels.map(id => {
+      // Safe lookup to handle any channel IDs
+      const channelName = CHANNEL_NAMES[id as keyof typeof CHANNEL_NAMES] || "unknown-channel";
+      return `#${channelName}`;
+    }).join(', ');
+
+    await message.reply({
+      embeds: [{
+        title: '❌ Command Used in Wrong Channel',
+        description: `The ${command} command must be used in ${allowedChannelNames}.`,
+        color: 0xFF0000, // Red
+        fields: [
+          {
+            name: '💡 Why This Matters',
+            value: 'Using commands in the correct channels helps keep our server organized and ensures that features work correctly!',
+            inline: false
+          }
+        ],
+        footer: {
+          text: 'Please go to the appropriate channel to use this command'
+        }
+      }]
+    });
+
+    return false;
+  }
+
+  // Setup event handlers
+  client.on('ready', () => {
+    log(`Logged in as ${client.user?.tag}!`, 'discord');
+    
+    // Start auto spawns
+    startAutoSpawns(client!, storage, POKEMON_SPAWNS_CHANNEL_ID);
+  });
+
+  // Handle new member joins
+  client.on('guildMemberAdd', async (member: GuildMember) => {
+    try {
+      const welcomeChannel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID) as TextChannel;
+
+      if (welcomeChannel) {
+        // Send a detailed welcome message with registration instructions
+        await welcomeChannel.send({
+          content: `Welcome to the Pokémon Discord, ${member.user}!`,
+          allowedMentions: { users: [member.id] },
+          embeds: [{
+            title: '🎮 Welcome to the Pokémon Discord Server! 🎮',
+            description: 'This is the start of your Pokémon journey!',
+            color: 0xEE1515, // Pokémon red color
+            image: {
+              url: 'https://media.giphy.com/media/NzZJtv3LRkKIrWwvzY/giphy.gif' // Animated Ash Ketchum GIF
+            },
+            fields: [
+              {
+                name: '📝 How to Register',
+                value: `You're currently in the <#${WELCOME_CHANNEL_ID}> channel. To access all other channels and features, type \`${COMMANDS.REGISTER}\` in this channel.`
+              },
+              {
+                name: '🔍 What Happens Next',
+                value: 'After registering, you\'ll get the Trainer role and access to all channels. You\'ll also receive a private message with more information on how to play.'
+              }
+            ],
+            footer: {
+              text: 'Become the very best, like no one ever was!'
+            }
+          }]
+        });
+      }
+    } catch (error) {
+      log(`Error in guildMemberAdd handler: ${error}`, 'discord');
+    }
+  });
+
+  // Handle message events
+  client.on('messageCreate', async (message) => {
+    
+    // Weaken command
+    if (content === COMMANDS.WEAKEN) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.WEAKEN)) return;
+      
+      await handleWeaken(message, storage);
+    }
+    // Ignore messages from bots
+    if (message.author.bot) return;
+
+    const content = message.content.trim().toLowerCase(); // Convert to lowercase for case-insensitive command matching
+
+    // Register command - only in welcome channel
+    if (content === COMMANDS.REGISTER) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.REGISTER)) return;
+
+      try {
+        const member = message.guild?.members.cache.get(message.author.id);
+        if (!member) return;
+
+        // Check if user already exists
+        const existingUser = await storage.getUserByDiscordId(member.id);
+        if (existingUser) {
+          await message.reply({
+            embeds: [{
+              title: '🔄 Already Registered',
+              description: "You've already registered as a trainer!",
+              color: 0x0099FF, // Blue
+              footer: {
+                text: 'Use !profile to see your trainer profile'
+              }
+            }]
+          });
+          return;
+        }
+
+        // Add the Trainer role
+        const trainerRole = message.guild?.roles.cache.find(role => role.name === 'Trainer');
+        if (trainerRole) {
+          await member.roles.add(trainerRole);
+
+          // Create user in database
+          const newUser: InsertUser = {
+            discordId: member.id,
+            username: member.user.username,
+            avatar: member.user.displayAvatarURL()
+          };
+          const user = await storage.createUser(newUser);
+
+          // Log registration activity
+          await storage.createActivity({
+            userId: member.id,
+            type: 'register' as ActivityType,
+            description: `${member.user.username} registered as a new trainer`,
+            data: { userId: member.id, username: member.user.username }
+          });
+
+          // Send welcome message
+          await message.reply({
+            embeds: [{
+              title: '✅ Registration Complete',
+              description: `Welcome, Trainer ${member.user.username}! Your Pokémon journey begins now!`,
+              color: 0x00FF00, // Green
+              fields: [
+                {
+                  name: '🏆 Getting Started',
+                  value: `Head to <#${NPC_BATTLES_CHANNEL_ID}> to start your first battle and receive your starter Pokémon!`
+                },
+                {
+                  name: '📚 Commands',
+                  value: "Use `!profile` to see your trainer profile\nUse `!team` to see your Pokémon team\nUse `!help` for more commands"
+                }
+              ],
+              thumbnail: {
+                url: 'https://i.imgur.com/7CJgMJC.png' // Poké Ball icon
+              },
+              footer: {
+                text: 'The journey of a thousand miles begins with a single step!'
+              }
+            }]
+          });
+
+          // Send private message with more details
+          try {
+            const dmEmbed = {
+              title: '🎮 Welcome to PokéVenture!',
+              description: 'Thank you for registering! Here\'s some info to get you started:',
+              color: 0xEE1515, // Pokémon red color
+              fields: [
+                {
+                  name: '🔰 First Steps',
+                  value: `Go to <#${NPC_BATTLES_CHANNEL_ID}> and type \`!npc\` to battle and receive your starter Pokémon`
+                },
+                {
+                  name: '🔍 Catch Pokémon',
+                  value: `Pokémon will randomly spawn in <#${POKEMON_SPAWNS_CHANNEL_ID}>. Type \`!catch\` to try and catch them when they appear!`
+                },
+                {
+                  name: '⚔️ Battle Other Trainers',
+                  value: `Head to <#${RANKED_BATTLES_CHANNEL_ID}> to battle other trainers and improve your rank`
+                },
+                {
+                  name: '📊 Track Your Progress',
+                  value: 'Use `!profile` to see your trainer stats, `!team` to manage your Pokémon team, and `!pokedex` to view your caught Pokémon'
+                }
+              ],
+              image: {
+                url: 'https://i.imgur.com/JklImqO.png' // Trainer and starter Pokemon
+              },
+              footer: {
+                text: 'Good luck on your journey, Trainer!'
+              }
+            };
+
+            await member.send({ embeds: [dmEmbed] });
+          } catch (error) {
+            // If DM fails, send the information in the channel instead
+            await message.channel.send({
+              content: `${member.user}, I couldn't send you a direct message. Here's your starter information:`,
+              embeds: [{
+                title: '🎮 Welcome to PokéVenture!',
+                description: 'Thank you for registering! Here\'s some info to get you started:',
+                color: 0xEE1515, // Pokémon red color
+                fields: [
+                  {
+                    name: '🔰 First Steps',
+                    value: `Go to <#${NPC_BATTLES_CHANNEL_ID}> and type \`!npc\` to battle and receive your starter Pokémon`
+                  },
+                  {
+                    name: '🔍 Catch Pokémon',
+                    value: `Pokémon will randomly spawn in <#${POKEMON_SPAWNS_CHANNEL_ID}>. Type \`!catch\` to try and catch them when they appear!`
+                  }
+                ]
+              }]
+            });
+          }
+
+          // Direct the user to the NPC battles channel
+          const npcChannel = message.guild?.channels.cache.get(NPC_BATTLES_CHANNEL_ID) as TextChannel;
+          if (npcChannel) {
+            // Send a message in NPC channel to guide the new user
+            await npcChannel.send({
+              content: `${member.user}, welcome to the NPC Battles channel! Type \`!npc\` to start your first battle.`,
+              allowedMentions: { users: [member.id] }
+            });
+          }
+        } else {
+          await message.reply("Trainer role not found. Please contact an admin.");
+        }
+      } catch (error) {
+        log(`Error in registration handler: ${error}`, 'discord');
+        await message.reply("An error occurred during registration. Please try again later.");
+      }
+    }
+    
+    // Delete account command
+    else if (content === '!del -1') {
+      const member = message.guild?.members.cache.get(message.author.id);
+      if (!member) return;
+
+      await message.reply({
+        embeds: [{
+          title: '⚠️ Delete Account',
+          description: 'Are you sure you want to permanently delete your account? This action cannot be undone.',
+          color: 0xFF0000,
+          fields: [
+            {
+              name: '❗ Warning',
+              value: 'This will delete all your Pokémon, items, and progress.'
+            }
+          ],
+          footer: {
+            text: 'Reply with "yes" to confirm or "no" to cancel within 30 seconds'
+          }
+        }]
+      });
+
+      // Create message collector
+      const filter = (m: Message) => m.author.id === message.author.id && ['yes', 'no'].includes(m.content.toLowerCase());
+      const collector = message.channel.createMessageCollector({ filter, time: 30000, max: 1 });
+
+      collector.on('collect', async (m) => {
+        if (m.content.toLowerCase() === 'yes') {
+          try {
+            // Get user by Discord ID
+            const user = await storage.getUserByDiscordId(member.id);
+            if (!user) {
+              await message.reply("No account found to delete.");
+              return;
+            }
+            
+            // Delete user data
+            await storage.deleteAllUserPokemon(user.id);
+            await storage.deleteAllUserItems(user.id);
+            await storage.deleteUser(user.id);
+
+            // Log activity
+            await storage.createActivity({
+              userId: member.id,
+              type: 'register' as ActivityType,
+              description: `${member.user.username} deleted their account`,
+              data: { userId: member.id, username: member.user.username }
+            });
+
+            await message.reply({
+              embeds: [{
+                title: '✅ Account Deleted',
+                description: 'Your account has been permanently deleted. You can start fresh by using the !register command.',
+                color: 0x00FF00
+              }]
+            });
+          } catch (error) {
+            log(`Error deleting account: ${error}`, 'discord');
+            await message.reply('An error occurred while deleting your account. Please try again later.');
+          }
+        } else {
+          await message.reply({
+            embeds: [{
+              title: '❌ Deletion Cancelled',
+              description: 'Your account deletion has been cancelled.',
+              color: 0x0000FF
+            }]
+          });
+        }
+      });
+
+      collector.on('end', (collected) => {
+        if (collected.size === 0) {
+          message.reply({
+            embeds: [{
+              title: '⏱️ Time Expired',
+              description: 'Account deletion cancelled - no response received within 30 seconds.',
+              color: 0xFF9900
+            }]
+          });
+        }
+      });
+      return;
+    }
+
+    // NPC Battle command with sound
+    else if (content.startsWith(COMMANDS.NPC_SOUND)) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.NPC_SOUND)) return;
+      
+      await handleNpcBattleWithSound(message, storage, AI_BATTLE_VOICE_CHANNEL_ID);
+    }
+
+    // NPC Battle command
+    else if (content.startsWith(COMMANDS.NPC)) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.NPC)) return;
+      
+      await handleNpcBattle(message, storage);
+    }
+    
+    // Starter Pokemon command
+    else if (content === COMMANDS.STARTER) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.STARTER)) return;
+      
+      await handleStarterCommand(message, storage);
+    }
+
+    // Ranked Battle command with sound
+    else if (content.startsWith(COMMANDS.RANKED_BATTLE_SOUND)) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.RANKED_BATTLE_SOUND)) return;
+      
+      await handleRankedBattleWithSound(message, storage, RANKED_BATTLE_VOICE_CHANNEL_ID);
+    }
+
+    // Ranked Battle command
+    else if (content.startsWith(COMMANDS.RANKED_BATTLE)) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.RANKED_BATTLE)) return;
+      
+      await handleRankedBattle(message, storage);
+    }
+
+    // Catch command
+    else if (content.startsWith(COMMANDS.CATCH)) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.CATCH)) return;
+      
+      try {
+        const member = message.guild?.members.cache.get(message.author.id);
+        if (!member) return;
+
+        // Check if user exists
+        const user = await storage.getUserByDiscordId(member.id);
+        if (!user) {
+          await message.reply("You need to register first! Go to the welcome channel and type !register");
+          return;
+        }
+
+        // Attempt to catch a Pokémon if there's an active spawn in this channel
+        const activeSpawns = await storage.getActiveSpawns();
+        const channelSpawn = activeSpawns.find(spawn => 
+          spawn.channelId === message.channelId && 
+          spawn.expiresAt > new Date() && 
+          !spawn.isCaught
+        );
+
+        if (!channelSpawn) {
+          await message.reply({
+            embeds: [{
+              title: '❌ No Pokémon Here',
+              description: "There are no Pokémon available to catch right now. Keep an eye out for wild Pokémon spawns!",
+              color: 0xFF0000, // Red
+              footer: {
+                text: 'Wild Pokémon appear randomly in this channel'
+              }
+            }]
+          });
+          return;
+        }
+
+        // TODO: Implement catch chance calculation based on Pokémon rarity, player level, etc.
+        const catchChance = 0.7; // 70% chance for now
+        const caught = Math.random() < catchChance;
+
+        if (caught) {
+          // Mark the spawn as caught
+          await storage.updateSpawn(channelSpawn.id, {
+            isCaught: true,
+            caughtBy: member.id
+          });
+
+          // Create the Pokémon in the user's collection
+          const pokemonData = channelSpawn.pokemon as any;
+          await storage.createPokemon({
+            userId: user.id,
+            name: pokemonData.name,
+            species: pokemonData.species,
+            level: pokemonData.level,
+            hp: pokemonData.stats.hp,
+            attack: pokemonData.stats.attack,
+            defense: pokemonData.stats.defense,
+            specialAttack: pokemonData.stats.specialAttack,
+            specialDefense: pokemonData.stats.specialDefense,
+            speed: pokemonData.stats.speed,
+            moves: pokemonData.moves,
+            types: pokemonData.types,
+            isShiny: pokemonData.isShiny || false
+          });
+
+          // Log catch activity
+          await storage.createActivity({
+            userId: member.id,
+            type: 'catch' as ActivityType,
+            description: `${member.user.username} caught a ${pokemonData.name} (Level ${pokemonData.level})`,
+            data: { 
+              userId: member.id, 
+              username: member.user.username,
+              pokemon: pokemonData 
+            }
+          });
+
+          // Send success message
+          await message.reply({
+            embeds: [{
+              title: '🎉 Gotcha!',
+              description: `Congratulations! You caught a Level ${pokemonData.level} ${pokemonData.name}!`,
+              color: 0x00FF00, // Green
+              fields: [
+                {
+                  name: '📊 Pokémon Details',
+                  value: `Species: ${pokemonData.species}\nType: ${pokemonData.types.join(', ')}\nPrimary Move: ${pokemonData.moves[0] || 'None'}`
+                }
+              ],
+              image: {
+                url: pokemonData.image || 'https://i.imgur.com/lXPxOOL.png' // Fallback image
+              },
+              footer: {
+                text: 'Use !team to see your Pokémon team and !pokedex to see all your caught Pokémon'
+              }
+            }]
+          });
+        } else {
+          // Failed to catch
+          await message.reply({
+            embeds: [{
+              title: '😖 Oh no!',
+              description: `The wild ${(channelSpawn.pokemon as any).name} broke free!`,
+              color: 0xFF9900, // Orange
+              footer: {
+                text: 'You can try again - use !catch to try to catch it'
+              }
+            }]
+          });
+        }
+      } catch (error) {
+        log(`Error in catch handler: ${error}`, 'discord');
+        await message.reply("An error occurred while trying to catch the Pokémon. Please try again.");
+      }
+    }
+
+    // Admin spawn command
+    else if (content.startsWith(COMMANDS.SPAWN) && message.author.id === BOT_OWNER_ID) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.SPAWN)) return;
+      
+      try {
+        const args = content.split(' ');
+        const pokemonName = args[1]?.toLowerCase();
+        const level = parseInt(args[2] || '5');
+        const isShiny = args.includes('shiny');
+        
+        if (!pokemonName) {
+          await message.reply("Usage: !spawn [pokemon_name] [level] [shiny]");
+          return;
+        }
+
+        // Handle Team Rocket encounter
+        if (pokemonName === 'teamrocket') {
+          await handleTeamRocketEncounter(message.channel as TextChannel, storage);
+          return;
+        }
+
+        // Handle regular Pokémon spawn
+        await handleSpawnPokemon(message.channel as TextChannel, storage, pokemonName, level, isShiny);
+      } catch (error) {
+        log(`Error in spawn handler: ${error}`, 'discord');
+        await message.reply("An error occurred while spawning a Pokémon. Please try again.");
+      }
+    }
+
+    // Tournament create command
+    else if (content.startsWith(COMMANDS.TOURNAMENT_CREATE)) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.TOURNAMENT_CREATE)) return;
+      
+      await handleTournamentCreate(message, storage);
+    }
+
+    // Tournament join command
+    else if (content.startsWith(COMMANDS.TOURNAMENT_JOIN)) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.TOURNAMENT_JOIN)) return;
+      
+      await handleTournamentJoin(message, storage);
+    }
+
+    // Tournament start command
+    else if (content.startsWith(COMMANDS.TOURNAMENT_START)) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.TOURNAMENT_START)) return;
+      
+      await handleTournamentStart(message, storage);
+    }
+
+    // Tournament status command
+    else if (content.startsWith(COMMANDS.TOURNAMENT_STATUS)) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.TOURNAMENT_STATUS)) return;
+      
+      await handleTournamentStatus(message, storage);
+    }
+
+    // Tournament bracket command
+    else if (content.startsWith(COMMANDS.TOURNAMENT_BRACKET)) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.TOURNAMENT_BRACKET)) return;
+      
+      await handleTournamentBracket(message, storage);
+    }
+    
+    // UI dashboard link command (Alpha role only)
+    else if (content === COMMANDS.UI) {
+      // Check if command is used in the right channel
+      if (!await validateCommandChannel(message, COMMANDS.UI)) return;
+
+      try {
+        const member = message.guild?.members.cache.get(message.author.id);
+        if (!member) return;
+        
+        // Check if user has the Alpha role
+        const hasAlphaRole = member.roles.cache.some(role => role.name === 'Alpha');
+        
+        if (!hasAlphaRole) {
+          await message.reply({
+            embeds: [{
+              title: '❌ Access Denied',
+              description: "You don't have permission to access the admin dashboard. The dashboard is only available to users with the Alpha role.",
+              color: 0xFF0000, // Red
+              footer: {
+                text: 'Contact a server administrator if you believe you should have access.'
+              }
+            }]
+          });
+          return;
+        }
+        
+        // Get the server URL from the environment
+        const serverUrl = process.env.REPL_SLUG 
+          ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co` 
+          : 'http://localhost:5000';
+          
+        // Try to send a DM with the dashboard link
+        try {
+          await member.send({
+            embeds: [{
+              title: '🛡️ Admin Dashboard Access',
+              description: "Here's your link to the Pokémon admin dashboard:",
+              color: 0x4CAF50, // Green
+              fields: [
+                {
+                  name: '🔗 Dashboard URL',
+                  value: `[Click here to access the dashboard](${serverUrl})`
+                },
+                {
+                  name: '⚠️ Security Notice',
+                  value: 'This link is for administrators only. Please do not share it with other users.'
+                }
+              ],
+              footer: {
+                text: 'The dashboard allows you to control spawns, monitor battles, and manage tournaments'
+              }
+            }]
+          });
+          
+          // Confirm in the channel that the DM was sent
+          await message.reply({
+            embeds: [{
+              title: '✅ Dashboard Link Sent',
+              description: "I've sent you a direct message with the dashboard link.",
+              color: 0x4CAF50, // Green
+              footer: {
+                text: 'Check your DMs for the link'
+              }
+            }]
+          });
+          
+          // Log activity
+          await storage.createActivity({
+            userId: member.id,
+            type: 'admin' as ActivityType,
+            description: `${member.user.username} requested dashboard access`,
+            data: { userId: member.id, username: member.user.username }
+          });
+        } catch (error) {
+          // If sending DM fails, let the user know 
+          await message.reply({
+            embeds: [{
+              title: '❌ Could Not Send DM',
+              description: "I couldn't send you a direct message with the dashboard link. Please make sure you have DMs enabled for this server.",
+              color: 0xFF9900, // Orange
+              fields: [
+                {
+                  name: '🔧 How to Enable DMs',
+                  value: 'Right-click on the server icon > Privacy Settings > Allow direct messages from server members'
+                }
+              ],
+              footer: {
+                text: 'For security reasons, the dashboard link can only be sent via DM'
+              }
+            }]
+          });
+        }
+      } catch (error) {
+        log(`Error in UI dashboard command handler: ${error}`, 'discord');
+        await message.reply("An error occurred while processing your request. Please try again later.");
+      }
+    }
+
+    // Invite command
+    else if (content.startsWith(COMMANDS.INVITE)) {
+      try {
+        // Get the bot owner
+        const owner = await client.users.fetch(BOT_OWNER_ID);
+        if (!owner) {
+          await message.reply("Could not find bot owner.");
+          return;
+        }
+
+        // Create buttons for owner response
+        const row = new ActionRowBuilder<ButtonBuilder>()
+          .addComponents(
+            new ButtonBuilder()
+              .setCustomId('invite_yes')
+              .setLabel('Yes')
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId('invite_no')
+              .setLabel('No')
+              .setStyle(ButtonStyle.Danger)
+          );
+
+        // Send request to owner
+        const ownerMessage = await owner.send({
+          embeds: [{
+            title: '🤖 Bot Invite Request',
+            description: `${message.author.tag} wants to invite me to their server "${message.guild?.name}". Is this okay?`,
+            color: 0x5865F2,
+            footer: { text: 'This request will expire in 5 minutes' }
+          }],
+          components: [row]
+        });
+
+        // Create collector for owner's response
+        const collector = ownerMessage.createMessageComponentCollector({ 
+          time: 300000,
+          max: 1
+        });
+
+        collector.on('collect', async (interaction) => {
+          if (interaction.customId === 'invite_yes') {
+            // Send invite instructions to requester
+            try {
+              await message.author.send({
+                embeds: [{
+                  title: '✅ Invite Request Approved',
+                  description: "D0G has given me the ok to move to your server! Please send your server invite link.",
+                  color: 0x00FF00
+                }]
+              });
+
+              // Create DM collector for server invite
+              const dmCollector = message.author.dmChannel?.createMessageCollector({
+                time: 300000,
+                max: 1,
+                filter: m => m.content.includes('discord.gg/')
+              });
+
+              dmCollector?.on('collect', async (inviteMsg) => {
+                try {
+                  // Join the server using invite
+                  const invite = await client.fetchInvite(inviteMsg.content);
+                  const guild = await invite.guild?.fetch();
+                  
+                  if (!guild) {
+                    await message.author.send("Invalid invite link. Please try again with a valid server invite.");
+                    return;
+                  }
+
+                  // Join server and set up channels
+                  await invite.accept();
+                  
+                  // Find first available text channel
+                  const channel = guild.channels.cache
+                    .find(ch => ch.type === ChannelType.GuildText) as TextChannel;
+
+                  if (channel) {
+                    await channel.send({
+                      embeds: [{
+                        title: '🎮 PokeVenture Setup',
+                        description: "I'll start deploying the PokeVenture game once I'm given permissions to channels.\nWhat channel would you like to have Pokémon spawns in?",
+                        color: 0x5865F2
+                      }]
+                    });
+
+                    // Create collector for spawn channel
+                    const spawnCollector = channel.createMessageCollector({
+                      time: 300000,
+                      max: 1
+                    });
+
+                    spawnCollector.on('collect', async (spawnMsg) => {
+                      const spawnChannel = guild.channels.cache
+                        .find(ch => ch.name === spawnMsg.content && ch.type === ChannelType.GuildText);
+
+                      if (!spawnChannel) {
+                        await channel.send("Channel not found. Please try again with the correct channel name.");
+                        return;
+                      }
+
+                      await channel.send({
+                        embeds: [{
+                          title: '🏆 NPC Battle Channel',
+                          description: "What channel would you like to use for playing through PokeVenture, battling NPCs, and collecting badges?",
+                          color: 0x5865F2
+                        }]
+                      });
+
+                      // Create collector for NPC channel
+                      const npcCollector = channel.createMessageCollector({
+                        time: 300000,
+                        max: 1
+                      });
+
+                      npcCollector.on('collect', async (npcMsg) => {
+                        const npcChannel = guild.channels.cache
+                          .find(ch => ch.name === npcMsg.content && ch.type === ChannelType.GuildText);
+
+                        if (!npcChannel) {
+                          await channel.send("Channel not found. Please try again with the correct channel name.");
+                          return;
+                        }
+
+                        // Final setup message
+                        const owner = guild.members.cache.find(member => member.id === guild.ownerId);
+                        await channel.send({
+                          embeds: [{
+                            title: '✨ Setup Complete',
+                            description: `Here in ${guild.name}, ${owner?.user.username} will be my alpha. If you have any questions, use the !help command.`,
+                            color: 0x00FF00,
+                            fields: [
+                              {
+                                name: '🔥 Spawn Channel',
+                                value: `<#${spawnChannel.id}>`
+                              },
+                              {
+                                name: '⚔️ NPC Battle Channel',
+                                value: `<#${npcChannel.id}>`
+                              }
+                            ]
+                          }]
+                        });
+                      });
+                    });
+                  }
+                } catch (error) {
+                  await message.author.send("Failed to join server. Please ensure the invite is valid and try again.");
+                }
+              });
+            } catch (error) {
+              await message.reply("I couldn't send you a DM. Please enable DMs for this server.");
+            }
+          } else {
+            // Send rejection message
+            await message.reply("Sorry, your invite request was declined.");
+          }
+        });
+      } catch (error) {
+        log(`Error in invite command handler: ${error}`, 'discord');
+        await message.reply("An error occurred while processing your invite request.");
+      }
+    }
+
+    // AI Command handler
+    else if (content.startsWith(COMMANDS.AI)) {
+      try {
+        const question = content.slice(COMMANDS.AI.length).trim();
+        
+        if (!question) {
+          await message.reply("Please provide a question after !ai");
+          return;
+        }
+
+        // Initial progress message
+        const progressEmbed = {
+          title: '🤖 AI Processing',
+          description: 'Analyzing your question...',
+          color: 0x3498db,
+          fields: [
+            {
+              name: 'Progress',
+              value: '▰▱▱▱▱▱▱▱▱▱ 10%'
+            }
+          ]
+        };
+
+        const progressMsg = await message.reply({ embeds: [progressEmbed] });
+        
+        // Update progress stages
+        const stages = [
+          { progress: '▰▰▱▱▱▱▱▱▱▱ 20%', status: 'Processing context...' },
+          { progress: '▰▰▰▱▱▱▱▱▱▱ 30%', status: 'Analyzing data...' },
+          { progress: '▰▰▰▰▱▱▱▱▱▱ 40%', status: 'Generating response...' },
+          { progress: '▰▰▰▰▰▱▱▱▱▱ 50%', status: 'Validating information...' },
+          { progress: '▰▰▰▰▰▰▱▱▱▱ 60%', status: 'Formatting answer...' },
+          { progress: '▰▰▰▰▰▰▰▱▱▱ 70%', status: 'Checking accuracy...' },
+          { progress: '▰▰▰▰▰▰▰▰▱▱ 80%', status: 'Finalizing response...' },
+          { progress: '▰▰▰▰▰▰▰▰▰▱ 90%', status: 'Almost ready...' },
+          { progress: '▰▰▰▰▰▰▰▰▰▰ 100%', status: 'Complete!' }
+        ];
+
+        // Simulate processing with progress updates
+        for (const stage of stages) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          progressEmbed.description = stage.status;
+          progressEmbed.fields[0].value = stage.progress;
+          await progressMsg.edit({ embeds: [progressEmbed] });
+        }
+
+        // Use Hugging Face's free inference API
+        const response = await fetch('https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            inputs: question
+          })
+        });
+
+        const data = await response.json();
+        const answer = data[0].generated_text;
+
+        // Send final answer
+        await progressMsg.edit({
+          embeds: [{
+            title: '🤖 AI Answer',
+            description: answer,
+            color: 0x2ecc71,
+            footer: {
+              text: 'Powered by OpenAI'
+            }
+          }]
+        });
+
+      } catch (error) {
+        log(`Error in AI command handler: ${error}`, 'discord');
+        await message.reply("Sorry, I encountered an error while processing your question. Please try again later.");
+      }
+    }
+
+    // TODO: Implement other commands
+  });
+
+  // Login to Discord
+  try {
+    await client.login(process.env.DISCORD_TOKEN);
+  } catch (error) {
+    log(`Failed to login to Discord: ${error}`, 'discord');
+  }
+
+  // Cleanup on server close
+  server.on('close', () => {
+    if (client) {
+      stopAutoSpawns();
+      client.destroy();
+      log('Discord bot disconnected', 'discord');
+    }
+  });
+}
+
+// Export client for other modules to use
+export function getDiscordClient(): Client | null {
+  return client;
+}
