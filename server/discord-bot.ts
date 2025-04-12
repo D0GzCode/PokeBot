@@ -9,9 +9,9 @@ import {
   ColorResolvable, 
   ButtonStyle, 
   ButtonInteraction,
-  Message,
-  Server
+  Message
 } from 'discord.js';
+import { Server } from 'http';
 import chalk from 'chalk';
 import { log } from './vite';
 import { storage } from './storage';
@@ -164,7 +164,8 @@ export async function setupDiscordBot(server: Server): Promise<void> {
   client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     
-    const [action, battleId, moveIndex] = interaction.customId.split('_');
+    const actionParts = interaction.customId.split('_');
+    const action = actionParts[0];
     
     // Log button interactions to console
     const username = interaction.user?.username || "Unknown User";
@@ -179,13 +180,35 @@ export async function setupDiscordBot(server: Server): Promise<void> {
       chalk.magenta(`${guildName} #${channelName} `) + 
       chalk.cyan(`@${username} clicked: `) + 
       chalk.redBright(`${action}`) +
-      (action === 'move' ? chalk.yellow(` (move index: ${moveIndex})`) : '')
+      (action === 'move' ? chalk.yellow(` (move index: ${actionParts[2]})`) : '')
     );
     
+    // Battle actions
     if (action === 'move') {
-      await handleMoveButton(interaction, battleId, parseInt(moveIndex));
+      await handleMoveButton(interaction, actionParts[1], parseInt(actionParts[2]));
     } else if (action === 'flee') {
-      await handleFleeButton(interaction, battleId);
+      await handleFleeButton(interaction, actionParts[1]);
+    }
+    // Pokédex console actions
+    else if (action === 'dex') {
+      const dexAction = actionParts[1];
+      
+      switch (dexAction) {
+        case 'npc_battle':
+          await handleDexNpcBattleButton(interaction);
+          break;
+        case 'spawn':
+          await handleDexSpawnButton(interaction);
+          break;
+        case 'inventory':
+          await handleDexInventoryButton(interaction);
+          break;
+        case 'shop':
+          await handleDexShopButton(interaction);
+          break;
+        default:
+          await interaction.reply({ content: 'Unknown Pokédex action', ephemeral: true });
+      }
     }
   });
 
@@ -730,47 +753,119 @@ async function handleDexCommand(message: Message): Promise<void> {
       return;
     }
 
+    // Get user's team
+    const team = await storage.getUserTeam(user.id);
+    
     // Create a DM channel with the user
     const dmChannel = await message.author.createDM();
     
-    // Create the Pokédex console embed (main interface)
-    const dexConsole = new EmbedBuilder()
-      .setTitle('🎮 Pokédex Console')
-      .setDescription('Your personal Pokémon trainer console. Use the buttons below to navigate.')
-      .setColor('#FF0000') // Red color for Pokédex
-      .setImage('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png')
-      .setFooter({ text: 'Pokédex Console v1.0 | Type "exit" to close' });
+    // Pokédex Header with Red Border
+    const headerBorder = '```ansi\n[2;31m' + 
+      '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
+      '┃  [1;37mPOKéDEX TERMINAL v1.0                                 [0m[2;31m┃\n' +
+      '┃  [1;34mConnected to Trainer: [1;33m' + message.author.username.padEnd(31, ' ') + '[0m[2;31m┃\n' +
+      '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛' +
+      '\u001b[0m\n```';
     
-    // Create user profile section
-    const profileSection = new EmbedBuilder()
-      .setTitle(`Trainer: ${message.author.username}`)
-      .setColor('#4CAF50')
-      .setThumbnail(message.author.displayAvatarURL())
-      .addFields(
-        { name: 'Level', value: `${user.trainerLevel}`, inline: true },
-        { name: 'Pokémon', value: `${user.pokemonCaught}`, inline: true },
-        { name: 'Battles', value: `${user.battleWins}W/${user.battleWins + user.tournamentWins}L`, inline: true },
-        { name: 'NPCs Beaten', value: `${user.npcDefeated}`, inline: true }
+    // User Profile Section (Top Left)
+    const profileSection = '```ansi\n[2;31m' +
+      '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ' +
+      '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
+      '┃  [1;37mTRAINER PROFILE              [0m[2;31m┃ ' +
+      '┃  [1;37mTRAINER AVATAR               [0m[2;31m┃\n' +
+      '┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫ ' +
+      '┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
+      '┃  [1;33mName:  [1;37m' + message.author.username.padEnd(22, ' ') + '[0m[2;31m┃ ' +
+      '┃  [1;34m/\\[1;37m_[1;34m/\\                         [0m[2;31m┃\n' +
+      '┃  [1;33mLevel: [1;32m' + (user.trainerLevel || 1).toString().padEnd(22, ' ') + '[0m[2;31m┃ ' +
+      '┃  [1;34m|  o o  |                      [0m[2;31m┃\n' +
+      '┃  [1;33mCoins: [1;33m' + (user.pokecoins || 0).toString().padEnd(22, ' ') + '[0m[2;31m┃ ' +
+      '┃  [1;34m>   ᴥ   <                      [0m[2;31m┃\n' +
+      '┃  [1;33mWin/Loss: [1;32m' + (user.battleWins || 0) + '[1;37m/[1;31m' + (user.tournamentWins || 0).toString().padEnd(17, ' ') + '[0m[2;31m┃ ' +
+      '┃                                [0m[2;31m┃\n' +
+      '┃  [1;33mPokémon: [1;36m' + (user.pokemonCaught || 0).toString().padEnd(20, ' ') + '[0m[2;31m┃ ' +
+      '┃  [1;33mEquipped Items:               [0m[2;31m┃\n' +
+      '┃  [1;33mNPCs Beaten: [1;35m' + (user.npcDefeated || 0).toString().padEnd(16, ' ') + '[0m[2;31m┃ ' +
+      '┃  [1;36m• Head: [1;37m' + (user.avatarHeadItem ? 'Item Equipped' : 'None').padEnd(19, ' ') + '[0m[2;31m┃\n' +
+      '┃  [1;33mBadges:                     [0m[2;31m┃ ' +
+      '┃  [1;36m• Body: [1;37m' + (user.avatarBodyItem ? 'Item Equipped' : 'None').padEnd(19, ' ') + '[0m[2;31m┃\n' +
+      '┃  [1;30m□ □ □ □ □ □ □ □              [0m[2;31m┃ ' +
+      '┃  [1;36m• Legs: [1;37m' + (user.avatarLegsItem ? 'Item Equipped' : 'None').padEnd(19, ' ') + '[0m[2;31m┃\n' +
+      '┃                                [0m[2;31m┃ ' +
+      '┃  [1;36m• Hands: [1;37m' + (user.avatarHandsItem ? 'Item Equipped' : 'None').padEnd(18, ' ') + '[0m[2;31m┃\n' +
+      '┃                                [0m[2;31m┃ ' +
+      '┃  [1;36m• Feet: [1;37m' + (user.avatarFeetItem ? 'Item Equipped' : 'None').padEnd(19, ' ') + '[0m[2;31m┃\n' +
+      '┃                                [0m[2;31m┃ ' +
+      '┃  [1;36m• Accessory: [1;37m' + (user.avatarAccessoryItem ? 'Item Equipped' : 'None').padEnd(14, ' ') + '[0m[2;31m┃\n' +
+      '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ' +
+      '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n' +
+      '\u001b[0m```';
+    
+    // Live View Section (Bottom)
+    const liveViewHeader = '```ansi\n[2;31m' +
+      '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
+      '┃  [1;37mLIVE VIEW                                             [0m[2;31m┃\n' +
+      '┣━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
+      '┃  [1;33mCHANNEL FEED      [0m[2;31m┃  [1;33mBATTLE SCREEN                   [0m[2;31m┃\n' +
+      '┣━━━━━━━━━━━━━━━━━━━┫━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
+      '\u001b[0m```';
+      
+    // Channel Feed (recent messages)
+    const channelFeed = '```ansi\n[2;31m' +
+      '┃ [1;37m> System: Welcome   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m> Use !help         [0m[2;31m┃             [1;33mClick buttons:          [0m[2;31m┃\n' +
+      '┃ [1;37m> For commands      [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;30m-------------------[0m[2;31m┃             [1;32m┏━━━━━━━━━━━┓           [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃             [1;32m┃ NPC BATTLE ┃           [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃             [1;32m┗━━━━━━━━━━━┛           [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃             [1;34m┏━━━━━━━━━━━┓           [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃             [1;34m┃   SPAWN   ┃           [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃             [1;34m┗━━━━━━━━━━━┛           [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;36m> Type to chat     [0m[2;31m┃                                    ┃\n' +
+      '┗━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n' +
+      '\u001b[0m```';
+    
+    // Footer Section
+    const footer = '```ansi\n[2;31m' +
+      '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
+      '┃  [1;33mCOMMAND LINE: [1;37mType "help" for commands, "exit" to close    [0m[2;31m┃\n' +
+      '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n' +
+      '\u001b[0m```';
+    
+    // Send the console interface sections
+    await dmChannel.send(headerBorder);
+    await dmChannel.send(profileSection);
+    await dmChannel.send(liveViewHeader);
+    await dmChannel.send(channelFeed);
+    await dmChannel.send(footer);
+    
+    // Create action row with buttons
+    const actionRow = new ActionRowBuilder<ButtonBuilder>()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('dex_npc_battle')
+          .setLabel('NPC BATTLE')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('dex_spawn')
+          .setLabel('SPAWN POKÉMON')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('dex_inventory')
+          .setLabel('INVENTORY')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('dex_shop')
+          .setLabel('SHOP')
+          .setStyle(ButtonStyle.Secondary)
       );
     
-    // Create avatar section (placeholder for now)
-    const avatarSection = new EmbedBuilder()
-      .setTitle('Trainer Avatar')
-      .setColor('#2196F3')
-      .setDescription('Your customized trainer avatar. Use !create to customize it!')
-      .setImage(user.avatar || message.author.displayAvatarURL());
-    
-    // Create battle section
-    const battleSection = new EmbedBuilder()
-      .setTitle('Battle Interface')
-      .setColor('#FF9800')
-      .setDescription('Click `NPC Battle` to challenge an NPC trainer or `Spawn` to find wild Pokémon to catch.');
-    
-    // Send all sections to create the console UI
-    await dmChannel.send({ content: '```ansi\n[2;31m╔══════════════════════════════════════════════╗\n║  \u001b[1;37mWelcome to the Pokédex Console              \u001b[0m[2;31m║\n╚══════════════════════════════════════════════╝\u001b[0m\n```' });
-    await dmChannel.send({ embeds: [profileSection, avatarSection] });
-    await dmChannel.send({ content: '```ansi\n[2;31m╔══════════════════════════════════════════════╗\n║  \u001b[1;37mLive View                                  \u001b[0m[2;31m║\n╚══════════════════════════════════════════════╝\u001b[0m\n```' });
-    await dmChannel.send({ embeds: [battleSection] });
+    // Send the buttons
+    await dmChannel.send({ components: [actionRow] });
     
     // Let the user know in the original channel
     await message.reply('I\'ve sent you a Pokédex console in your DMs!');
@@ -856,4 +951,309 @@ async function handleShopCommand(message: Message, args: string[]): Promise<void
  */
 async function handleNpcCommand(message: Message): Promise<void> {
   await message.reply('NPC battles are coming soon! Stay tuned.');
+}
+
+/**
+ * Handle the Pokédex NPC Battle button interaction
+ */
+async function handleDexNpcBattleButton(interaction: ButtonInteraction): Promise<void> {
+  try {
+    // Get the user data
+    const user = await storage.getUserByDiscordId(interaction.user.id);
+    if (!user) {
+      await interaction.reply({ content: 'User not found!', ephemeral: true });
+      return;
+    }
+    
+    // Get the user's team
+    const team = await storage.getUserTeam(user.id);
+    if (team.length === 0) {
+      await interaction.reply({ content: 'You don\'t have any Pokémon in your team! Catch a Pokémon first.', ephemeral: true });
+      return;
+    }
+    
+    // Update the battle screen section in the Pokédex console
+    const battleScreenContent = '```ansi\n[2;31m' +
+      '┃ [1;37m> Starting NPC Battle [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m> Preparing Trainer   [0m[2;31m┃            [1;33mBattle Starting          [0m[2;31m┃\n' +
+      '┃ [1;37m> Challenge...        [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;30m-------------------[0m[2;31m┃               [1;34m/\\___/\\             [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃               [1;34m|  -  |             [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃               [1;34m \\_. _/             [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃       [1;31mVS[0m[2;31m                         ┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃               [1;32m/\\___/\\             [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃               [1;32m|o   o|             [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃               [1;32m\\_www_/             [0m[2;31m┃\n' +
+      '┃ [1;36m> Starting Battle   [0m[2;31m┃                                    ┃\n' +
+      '┗━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n' +
+      '\u001b[0m```';
+    
+    // Send the updated battle screen
+    await interaction.reply({ content: battleScreenContent, ephemeral: false });
+    
+    // Wait 3 seconds to simulate loading
+    setTimeout(async () => {
+      // Create a battle initialization message
+      await interaction.followUp({ 
+        content: "NPC Battle initiated! Starting a real battle in the server...", 
+        ephemeral: false 
+      });
+      
+      // Send the message to the user's DM
+      const dmChannel = await interaction.user.createDM();
+      await dmChannel.send("The battle will continue in the server. Please check your server for the battle!");
+      
+      // Now we could redirect to a real battle in the server
+      // But for now we'll just end with a message
+      await interaction.followUp({ 
+        content: "This feature is under development. The battle system will be fully integrated soon!", 
+        ephemeral: false 
+      });
+    }, 3000);
+  } catch (error) {
+    console.error('Error in Pokédex NPC Battle button handler:', error);
+    await interaction.reply({ content: 'An error occurred. Please try again later.', ephemeral: true });
+  }
+}
+
+/**
+ * Handle the Pokédex Spawn button interaction
+ */
+async function handleDexSpawnButton(interaction: ButtonInteraction): Promise<void> {
+  try {
+    // Get the user data
+    const user = await storage.getUserByDiscordId(interaction.user.id);
+    if (!user) {
+      await interaction.reply({ content: 'User not found!', ephemeral: true });
+      return;
+    }
+    
+    // Update the battle screen section to show spawning animation
+    const spawnScreenContent = '```ansi\n[2;31m' +
+      '┃ [1;37m> Searching for wild  [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m> Pokémon...          [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m> Stand by...         [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;30m-------------------[0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃            [1;32m/\\[1;37m_[1;32m/\\                 [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃            [1;32m(o . o)                [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃            [1;32m>  Y  <                [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃       [1;33m⚠ Wild Pokémon ⚠          [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃          [1;33mApproaching!            [0m[2;31m┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;37m                   [0m[2;31m┃                                    ┃\n' +
+      '┃ [1;36m> Searching...      [0m[2;31m┃                                    ┃\n' +
+      '┗━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n' +
+      '\u001b[0m```';
+    
+    // Send the updated spawn screen
+    await interaction.reply({ content: spawnScreenContent, ephemeral: false });
+    
+    // Wait 3 seconds to simulate loading
+    setTimeout(async () => {
+      // Create an encounter result with a random Pokémon
+      const randomPokemonId = Math.floor(Math.random() * 151) + 1; // Gen 1 Pokémon
+      
+      // Create buttons for catching
+      const pokeBallsRow = new ActionRowBuilder<ButtonBuilder>()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId('catch_pokeball')
+            .setLabel('Poké Ball')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId('catch_greatball')
+            .setLabel('Great Ball')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId('catch_ultraball')
+            .setLabel('Ultra Ball')
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId('catch_flee')
+            .setLabel('Run Away')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      
+      // Send the encounter message
+      await interaction.followUp({ 
+        content: `A wild Pokémon appeared! Use the buttons to throw Poké Balls.`, 
+        components: [pokeBallsRow],
+        ephemeral: false 
+      });
+      
+      // Send more info about the spawn feature
+      await interaction.followUp({ 
+        content: "The full spawn and catch system will be implemented soon! You'll be able to battle and catch wild Pokémon directly in Discord.",
+        ephemeral: false 
+      });
+    }, 3000);
+  } catch (error) {
+    console.error('Error in Pokédex Spawn button handler:', error);
+    await interaction.reply({ content: 'An error occurred. Please try again later.', ephemeral: true });
+  }
+}
+
+/**
+ * Handle the Pokédex Inventory button interaction
+ */
+async function handleDexInventoryButton(interaction: ButtonInteraction): Promise<void> {
+  try {
+    // Get the user data
+    const user = await storage.getUserByDiscordId(interaction.user.id);
+    if (!user) {
+      await interaction.reply({ content: 'User not found!', ephemeral: true });
+      return;
+    }
+    
+    // Create an inventory display
+    const inventoryContent = '```ansi\n[2;31m' +
+      '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
+      '┃  [1;37mINVENTORY                                           [0m[2;31m┃\n' +
+      '┣━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
+      '┃  [1;33mITEM CATEGORIES     [0m[2;31m┃  [1;33mITEMS                          [0m[2;31m┃\n' +
+      '┣━━━━━━━━━━━━━━━━━━━┫━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
+      '┃ [1;32m> Poké Balls        [0m[2;31m┃  [1;37mPoké Ball x3                    [0m[2;31m┃\n' +
+      '┃ [1;30m> Potions           [0m[2;31m┃  [1;37mGreat Ball x1                   [0m[2;31m┃\n' +
+      '┃ [1;30m> Battle Items      [0m[2;31m┃  [1;37mUltra Ball x0                   [0m[2;31m┃\n' +
+      '┃ [1;30m> Key Items         [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃ [1;30m> TMs               [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃ [1;36m> Select a category  [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┗━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n' +
+      '\u001b[0m```';
+    
+    // Create buttons for inventory navigation
+    const inventoryButtonsRow = new ActionRowBuilder<ButtonBuilder>()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('inventory_pokeballs')
+          .setLabel('Poké Balls')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('inventory_potions')
+          .setLabel('Potions')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('inventory_battle')
+          .setLabel('Battle Items')
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId('inventory_back')
+          .setLabel('Back to Main')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    
+    // Send the inventory display
+    await interaction.reply({ 
+      content: inventoryContent, 
+      components: [inventoryButtonsRow],
+      ephemeral: false 
+    });
+    
+    // Send more info about the inventory feature
+    await interaction.followUp({ 
+      content: "The full inventory system will be implemented soon! You'll be able to manage and use your items directly from the console.",
+      ephemeral: false 
+    });
+  } catch (error) {
+    console.error('Error in Pokédex Inventory button handler:', error);
+    await interaction.reply({ content: 'An error occurred. Please try again later.', ephemeral: true });
+  }
+}
+
+/**
+ * Handle the Pokédex Shop button interaction
+ */
+async function handleDexShopButton(interaction: ButtonInteraction): Promise<void> {
+  try {
+    // Get the user data
+    const user = await storage.getUserByDiscordId(interaction.user.id);
+    if (!user) {
+      await interaction.reply({ content: 'User not found!', ephemeral: true });
+      return;
+    }
+    
+    // Create a shop display
+    const shopContent = '```ansi\n[2;31m' +
+      '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
+      '┃  [1;37mPOKé MART                                           [0m[2;31m┃\n' +
+      '┣━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
+      '┃  [1;33mSHOP CATEGORIES     [0m[2;31m┃  [1;33mITEMS FOR SALE                 [0m[2;31m┃\n' +
+      '┣━━━━━━━━━━━━━━━━━━━┫━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
+      '┃ [1;32m> Poké Balls        [0m[2;31m┃  [1;37mPoké Ball - 200 coins           [0m[2;31m┃\n' +
+      '┃ [1;30m> Potions           [0m[2;31m┃  [1;37mGreat Ball - 600 coins          [0m[2;31m┃\n' +
+      '┃ [1;30m> Battle Items      [0m[2;31m┃  [1;37mUltra Ball - 1200 coins         [0m[2;31m┃\n' +
+      '┃ [1;30m> Clothing          [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃  [1;33mYour Coins: ' + (user.pokecoins || 0).toString().padEnd(18, ' ') + '[0m[2;31m┃\n' +
+      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┃ [1;36m> Select a category  [0m[2;31m┃                                    [0m[2;31m┃\n' +
+      '┗━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n' +
+      '\u001b[0m```';
+    
+    // Create buttons for shop navigation
+    const shopButtonsRow = new ActionRowBuilder<ButtonBuilder>()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('shop_pokeballs')
+          .setLabel('Poké Balls')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('shop_potions')
+          .setLabel('Potions')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('shop_clothing')
+          .setLabel('Clothing')
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId('shop_back')
+          .setLabel('Back to Main')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    
+    // Buy buttons for Pokéballs
+    const buyButtonsRow = new ActionRowBuilder<ButtonBuilder>()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('buy_pokeball')
+          .setLabel('Buy Poké Ball')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('buy_greatball')
+          .setLabel('Buy Great Ball')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('buy_ultraball')
+          .setLabel('Buy Ultra Ball')
+          .setStyle(ButtonStyle.Danger)
+      );
+    
+    // Send the shop display
+    await interaction.reply({ 
+      content: shopContent, 
+      components: [shopButtonsRow, buyButtonsRow],
+      ephemeral: false 
+    });
+    
+    // Send more info about the shop feature
+    await interaction.followUp({ 
+      content: "The full shop system will be implemented soon! You'll be able to buy items and customization for your avatar.",
+      ephemeral: false 
+    });
+  } catch (error) {
+    console.error('Error in Pokédex Shop button handler:', error);
+    await interaction.reply({ content: 'An error occurred. Please try again later.', ephemeral: true });
+  }
 }
