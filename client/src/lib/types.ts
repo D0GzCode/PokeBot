@@ -32,6 +32,25 @@ export interface Event {
   title: string;
   description: string;
   date: string;
+
+export interface AvatarItem {
+  id: number;
+  name: string;
+  type: 'head' | 'body' | 'legs' | 'hands' | 'feet' | 'accessory';
+  imageUrl: string;
+  price: number;
+  description: string;
+}
+
+export interface UserAvatar {
+  head?: AvatarItem;
+  body?: AvatarItem;
+  legs?: AvatarItem;
+  hands?: AvatarItem;
+  feet?: AvatarItem;
+  accessory?: AvatarItem;
+}
+
   timeRemaining: string;
   colorClass: string;
 }
