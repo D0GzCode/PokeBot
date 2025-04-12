@@ -2,23 +2,18 @@ import {
   Client, 
   GatewayIntentBits, 
   TextChannel, 
-  GuildMember,
   ChannelType, 
-  Message,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  MessageCreateOptions,
-  AttachmentBuilder,
-  ColorResolvable,
-  InteractionCollector,
+  EmbedBuilder, 
+  ActionRowBuilder, 
+  ButtonBuilder, 
+  ColorResolvable, 
+  ButtonStyle, 
   ButtonInteraction,
-  MessageComponentInteraction
+  Message,
+  Server
 } from 'discord.js';
-import { Server } from 'http';
-import { log } from './vite';
 import chalk from 'chalk';
+import { log } from './vite';
 import { storage } from './storage';
 import { battleService, BattleState, BattlePokemon, BattleMove } from './services/battleService';
 import axios from 'axios';
@@ -29,7 +24,13 @@ const COMMANDS = {
   CATCH: '!catch',
   TEAM: '!team',
   PROFILE: '!profile',
-  HELP: '!help'
+  HELP: '!help',
+  DEX: '!dex',      // New Pokédex console command
+  CREATE: '!create', // Avatar creation/selection command
+  REGISTER: '!register', // User registration command
+  AVATAR: '!avatar',  // Avatar item management
+  SHOP: '!shop',     // Shop for avatar items and Pokéballs
+  NPC: '!npc'        // Challenge NPC trainers
 };
 
 // Create Discord client
@@ -58,8 +59,9 @@ export async function setupDiscordBot(server: Server): Promise<void> {
 
   // Setup event handlers
   client.on('ready', () => {
-    console.log(chalk.green('🤖 ') + chalk.bold.green(`Discord Bot Online: Logged in as ${client?.user?.tag}!`));
-    log(`Logged in as ${client?.user?.tag}!`, 'discord');
+    if (!client) return;
+    console.log(chalk.green('🤖 ') + chalk.bold.green(`Discord Bot Online: Logged in as ${client.user?.tag}!`));
+    log(`Logged in as ${client.user?.tag}!`, 'discord');
     
     // Show server information
     if (client.guilds.cache.size > 0) {
@@ -125,12 +127,36 @@ export async function setupDiscordBot(server: Server): Promise<void> {
       await handleTeamCommand(message);
     }
     // Profile command
-    else if (content === COMMANDS.PROFILE) {
-      await handleProfileCommand(message);
+    else if (args[0] === COMMANDS.PROFILE) {
+      await handleProfileCommand(message, args);
     }
     // Help command
     else if (content === COMMANDS.HELP) {
       await handleHelpCommand(message);
+    }
+    // Pokédex command
+    else if (content === COMMANDS.DEX) {
+      await handleDexCommand(message);
+    }
+    // Avatar creation command
+    else if (content.startsWith(COMMANDS.CREATE)) {
+      await handleCreateCommand(message, args);
+    }
+    // Register command
+    else if (content === COMMANDS.REGISTER) {
+      await handleRegisterCommand(message);
+    }
+    // Avatar management command
+    else if (content.startsWith(COMMANDS.AVATAR)) {
+      await handleAvatarCommand(message, args);
+    }
+    // Shop command
+    else if (content.startsWith(COMMANDS.SHOP)) {
+      await handleShopCommand(message, args);
+    }
+    // NPC battle command
+    else if (content === COMMANDS.NPC) {
+      await handleNpcCommand(message);
     }
   });
 
@@ -582,32 +608,88 @@ async function handleTeamCommand(message: Message): Promise<void> {
     // Create the team embed
     const embed = new EmbedBuilder()
       .setTitle(`${message.author.username}'s Pokémon Team`)
-      .setColor('#FF5722') // Deep orange
+      .setColor('#FF5722')
       .setThumbnail(message.author.displayAvatarURL());
-
-    // Add each Pokémon to the embed
+    
+    // Add the Pokémon to the embed
     team.forEach((pokemon, index) => {
       embed.addFields({
-        name: `#${index + 1}: ${pokemon.name} (Lv. ${pokemon.level})`,
-        value: `Type: ${pokemon.types ? pokemon.types.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join('/') : 'Unknown'}\nID: ${pokemon.id}`
+        name: `${index + 1}. ${pokemon.name} (Lv. ${pokemon.level})`,
+        value: `Type: ${pokemon.types ? pokemon.types.join('/') : 'Unknown'}\nID: ${pokemon.id}`
       });
     });
-
-    // Add battle instructions
-    embed.setFooter({ text: 'To battle with a specific Pokémon, use !battle [pokemon_id]' });
-
+    
+    // Send the embed
     await message.reply({ embeds: [embed] });
+    
   } catch (error) {
     console.error('Error in team command:', error);
-    await message.reply('An error occurred while fetching your team. Please try again later.');
+    await message.reply('An error occurred while getting your team. Please try again later.');
   }
 }
 
 /**
  * Handle the !profile command
  */
-async function handleProfileCommand(message: Message): Promise<void> {
-  await message.reply('This feature is not implemented yet.');
+async function handleProfileCommand(message: Message, args: string[]): Promise<void> {
+  try {
+    let discordId = message.author.id;
+    let username = message.author.username;
+    
+    // Check if a username was specified
+    if (args.length >= 2) {
+      username = args.slice(1).join(' ');
+      // If a username was specified, we need to find the user by username
+      const targetUser = await storage.getUserByUsername(username);
+      if (!targetUser) {
+        await message.reply(`User ${username} not found.`);
+        return;
+      }
+      discordId = targetUser.discordId;
+    }
+    
+    // Get the user from the database
+    const user = await storage.getUserByDiscordId(discordId);
+    if (!user) {
+      await message.reply('User not found. Make sure they are registered!');
+      return;
+    }
+
+    // Get user's team
+    const team = await storage.getUserTeam(user.id);
+    
+    // Get total number of Pokémon caught
+    const totalPokemon = await storage.getPokemonByUserId(user.id).then(pokemon => pokemon.length);
+    
+    // Create the profile embed
+    const embed = new EmbedBuilder()
+      .setTitle(`${username}'s Trainer Profile`)
+      .setColor('#3F51B5')
+      .setThumbnail(message.author.displayAvatarURL())
+      .addFields(
+        { name: 'Trainer Level', value: `${user.trainerLevel}`, inline: true },
+        { name: 'PokéCoins', value: `${user.pokecoins}`, inline: true },
+        { name: 'Battle Wins', value: `${user.battleWins}`, inline: true },
+        { name: 'Tournament Wins', value: `${user.tournamentWins}`, inline: true },
+        { name: 'Pokémon Caught', value: `${user.pokemonCaught}`, inline: true },
+        { name: 'NPC Battles Won', value: `${user.npcDefeated}`, inline: true },
+        { name: 'Total Pokémon', value: `${totalPokemon}`, inline: true },
+        { name: 'Team Size', value: `${team.length}/6`, inline: true }
+      );
+    
+    // Add team preview if the user has Pokémon in their team
+    if (team.length > 0) {
+      const teamPreview = team.map(p => `${p.name} (Lv. ${p.level})`).join(', ');
+      embed.addFields({ name: 'Active Team', value: teamPreview });
+    }
+    
+    // Send the embed
+    await message.reply({ embeds: [embed] });
+    
+  } catch (error) {
+    console.error('Error in profile command:', error);
+    await message.reply('An error occurred while getting the profile. Please try again later.');
+  }
 }
 
 /**
@@ -615,16 +697,163 @@ async function handleProfileCommand(message: Message): Promise<void> {
  */
 async function handleHelpCommand(message: Message): Promise<void> {
   const embed = new EmbedBuilder()
-    .setTitle('PokéBot Commands')
+    .setTitle('Pokémon Bot Commands')
+    .setColor('#2196F3')
     .setDescription('Here are the available commands:')
-    .setColor('#2196F3') // Blue
     .addFields(
-      { name: '!battle [pokemon_id]', value: 'Start a battle with a wild Pokémon. Optionally specify which Pokémon from your team to use.' },
-      { name: '!catch', value: 'Try to catch a wild Pokémon when one appears.' },
-      { name: '!team', value: 'View your Pokémon team.' },
-      { name: '!profile', value: 'View your trainer profile.' }
+      { name: '!register', value: 'Register as a trainer to start your journey.' },
+      { name: '!catch', value: 'Catch wild Pokémon that appear in the server.' },
+      { name: '!team', value: 'View your current Pokémon team.' },
+      { name: '!battle [pokemonId]', value: 'Start a battle with your Pokémon. If no ID is provided, your first team member will be used.' },
+      { name: '!profile [username]', value: 'View your trainer profile or another trainer\'s profile.' },
+      { name: '!dex', value: 'Open the Pokédex console in a DM.' },
+      { name: '!create', value: 'Create or customize your trainer avatar.' },
+      { name: '!avatar', value: 'Manage your avatar items and appearance.' },
+      { name: '!shop', value: 'Visit the shop to buy items and Pokéballs.' },
+      { name: '!npc', value: 'Challenge NPC trainers to earn rewards.' },
+      { name: '!help', value: 'Display this help message.' }
     )
-    .setFooter({ text: 'PokéBot v1.0.0' });
-
+    .setFooter({ text: 'Made with ❤️ by Dogmail420' });
+  
   await message.reply({ embeds: [embed] });
+}
+
+/**
+ * Handle the !dex command
+ */
+async function handleDexCommand(message: Message): Promise<void> {
+  try {
+    // Get the user from the database
+    const user = await storage.getUserByDiscordId(message.author.id);
+    if (!user) {
+      await message.reply('You need to register first! Use `!register` in the welcome channel.');
+      return;
+    }
+
+    // Create a DM channel with the user
+    const dmChannel = await message.author.createDM();
+    
+    // Create the Pokédex console embed (main interface)
+    const dexConsole = new EmbedBuilder()
+      .setTitle('🎮 Pokédex Console')
+      .setDescription('Your personal Pokémon trainer console. Use the buttons below to navigate.')
+      .setColor('#FF0000') // Red color for Pokédex
+      .setImage('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png')
+      .setFooter({ text: 'Pokédex Console v1.0 | Type "exit" to close' });
+    
+    // Create user profile section
+    const profileSection = new EmbedBuilder()
+      .setTitle(`Trainer: ${message.author.username}`)
+      .setColor('#4CAF50')
+      .setThumbnail(message.author.displayAvatarURL())
+      .addFields(
+        { name: 'Level', value: `${user.trainerLevel}`, inline: true },
+        { name: 'Pokémon', value: `${user.pokemonCaught}`, inline: true },
+        { name: 'Battles', value: `${user.battleWins}W/${user.battleWins + user.tournamentWins}L`, inline: true },
+        { name: 'NPCs Beaten', value: `${user.npcDefeated}`, inline: true }
+      );
+    
+    // Create avatar section (placeholder for now)
+    const avatarSection = new EmbedBuilder()
+      .setTitle('Trainer Avatar')
+      .setColor('#2196F3')
+      .setDescription('Your customized trainer avatar. Use !create to customize it!')
+      .setImage(user.avatar || message.author.displayAvatarURL());
+    
+    // Create battle section
+    const battleSection = new EmbedBuilder()
+      .setTitle('Battle Interface')
+      .setColor('#FF9800')
+      .setDescription('Click `NPC Battle` to challenge an NPC trainer or `Spawn` to find wild Pokémon to catch.');
+    
+    // Send all sections to create the console UI
+    await dmChannel.send({ content: '```ansi\n[2;31m╔══════════════════════════════════════════════╗\n║  \u001b[1;37mWelcome to the Pokédex Console              \u001b[0m[2;31m║\n╚══════════════════════════════════════════════╝\u001b[0m\n```' });
+    await dmChannel.send({ embeds: [profileSection, avatarSection] });
+    await dmChannel.send({ content: '```ansi\n[2;31m╔══════════════════════════════════════════════╗\n║  \u001b[1;37mLive View                                  \u001b[0m[2;31m║\n╚══════════════════════════════════════════════╝\u001b[0m\n```' });
+    await dmChannel.send({ embeds: [battleSection] });
+    
+    // Let the user know in the original channel
+    await message.reply('I\'ve sent you a Pokédex console in your DMs!');
+    
+  } catch (error) {
+    console.error('Error in dex command:', error);
+    await message.reply('An error occurred while opening the Pokédex console. Please make sure you have DMs enabled.');
+  }
+}
+
+/**
+ * Handle the !create command
+ */
+async function handleCreateCommand(message: Message, args: string[]): Promise<void> {
+  await message.reply('The avatar creation system is coming soon! Stay tuned.');
+}
+
+/**
+ * Handle the !register command
+ */
+async function handleRegisterCommand(message: Message): Promise<void> {
+  try {
+    // Check if user already exists
+    const existingUser = await storage.getUserByDiscordId(message.author.id);
+    if (existingUser) {
+      await message.reply('You are already registered! Use `!profile` to see your profile.');
+      return;
+    }
+    
+    // Create a new user
+    const user = await storage.createUser({
+      username: message.author.username,
+      password: 'password123', // Default password, not really used for Discord users
+      discordId: message.author.id,
+      avatar: message.author.displayAvatarURL(),
+    });
+    
+    // Create a welcome message
+    const embed = new EmbedBuilder()
+      .setTitle('🎉 Welcome to the Pokémon World!')
+      .setColor('#4CAF50')
+      .setDescription(`Congratulations ${message.author.username}! You are now registered as a Pokémon trainer.`)
+      .addFields(
+        { name: 'Next Steps', value: 'Use `!catch` to catch your first Pokémon, then `!team` to view your team, and `!battle` to start battling!' },
+        { name: 'Pokédex Console', value: 'Use `!dex` to open your personal Pokédex console in DMs.' }
+      )
+      .setThumbnail(message.author.displayAvatarURL())
+      .setFooter({ text: 'Your adventure begins now!' });
+    
+    // Send the welcome message
+    await message.reply({ embeds: [embed] });
+    
+    // Create an activity
+    await storage.createActivity({
+      type: 'REGISTER',
+      description: `${message.author.username} registered as a new trainer!`,
+      timestamp: new Date().toISOString(),
+      userId: user.id,
+    });
+    
+  } catch (error) {
+    console.error('Error in register command:', error);
+    await message.reply('An error occurred while registering. Please try again later.');
+  }
+}
+
+/**
+ * Handle the !avatar command
+ */
+async function handleAvatarCommand(message: Message, args: string[]): Promise<void> {
+  await message.reply('The avatar management system is coming soon! Stay tuned.');
+}
+
+/**
+ * Handle the !shop command
+ */
+async function handleShopCommand(message: Message, args: string[]): Promise<void> {
+  await message.reply('The shop system is coming soon! Stay tuned.');
+}
+
+/**
+ * Handle the !npc command
+ */
+async function handleNpcCommand(message: Message): Promise<void> {
+  await message.reply('NPC battles are coming soon! Stay tuned.');
 }
