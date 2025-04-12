@@ -159,8 +159,25 @@ export async function setupDiscordBot(server: Server): Promise<void> {
     else if (content === COMMANDS.NPC) {
       await handleNpcCommand(message);
     }
-    // DMs check command
-    else if (content === COMMANDS.DMS) {
+    // Admin console command
+    else if (content === '!op' && message.member?.permissions.has('Administrator')) {
+      try {
+        const dmChannel = await message.author.createDM();
+        const adminUrl = `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/admin?token=${process.env.ADMIN_TOKEN}`;
+
+        const embed = new EmbedBuilder()
+          .setTitle('🔐 Admin Console Access')
+          .setColor('#FF0000')
+          .setDescription('Here is your secure admin console URL. Do not share this with anyone!')
+          .addFields({ name: 'Console URL', value: adminUrl })
+          .setFooter({ text: 'This URL contains sensitive information. Keep it private!' });
+
+        await dmChannel.send({ embeds: [embed] });
+        await message.reply('I\'ve sent you the admin console URL in a DM.');
+      } catch (error) {
+        await message.reply('Failed to send DM. Please enable direct messages from server members.');
+      }
+    } else if (content === '!dms') {
       try {
         const dmChannel = await message.author.createDM();
         await dmChannel.send("✅ Your DMs are enabled! You can receive messages from me.");
@@ -794,7 +811,8 @@ async function handleHelpCommand(message: Message): Promise<void> {
       { name: '!help', value: 'Display this help message.' },
       { name: '!dms', value: 'Check if your DMs are enabled for the bot.' },
       { name: '!del -1', value: 'Delete your account (irreversible).' },
-      { name: '!del -all', value: 'Delete all server data (admin only, irreversible).' }
+      { name: '!del -all', value: 'Delete all server data (admin only, irreversible).' },
+      { name: '!op', value: 'Access the admin console (admin only).' }
     )
     .setFooter({ text: 'Made with ❤️ by Dogmail420' });
 
@@ -832,17 +850,7 @@ async function handleDexCommand(message: Message): Promise<void> {
       '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ' +
       '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
       '┃  [1;37mTRAINER PROFILE              [0m[2;31m┃ ' +
-      '┃  [1;37mTRAINER AVATAR               [0m[2;31m┃\n' +
-      '┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫ ' +
-      '┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
-      '┃  [1;33mName:  [1;37m' + message.author.username.padEnd(22, ' ') + '[0m[2;31m┃ ' +
-      '┃  [1;34m/\\[1;37m_[1;34m/\\                         [0m[2;31m┃\n' +
-      '┃  [1;33mLevel: [1;32m' + (user.trainerLevel || 1).toString().padEnd(22, ' ') + '[0m[2;31m┃ ' +
-      '┃  [1;34m|  o o  |                      [0m[2;31m┃\n' +
-      ';
-
-    // Live View Section (Bottom)
-    const liveViewHeader = '```ansi\n[2';
+      '┃  [ansi\n[2';
 
     // Channel Feed (recent messages)
     const channelFeed = '```ansi\n[2;31m' +
@@ -1221,22 +1229,4 @@ async function handleDexShopButton(interaction: ButtonInteraction): Promise<void
     }
 
     // Create a shop display
-    const shopContent = '```ansi\n[2;31m' +
-      '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
-      '┃  [1;37mPOKé MART                                           [0m[2;31m┃\n' +
-      '┣━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
-      '┃  [1;33mSHOP CATEGORIES     [0m[2;31m┃  [1;33mITEMS FOR SALE                 [0m[2;31m┃\n' +
-      '┣━━━━━━━━━━━━━━━━━━━┫━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
-      '┃ [1;32m> Poké Balls        [0m[2;31m┃  [1;37mPoké Ball - 200 coins           [0m[2;31m┃\n' +
-      '┃ [1;30m> Potions           [0m[2;31m┃  [1;37mGreat Ball - 600 coins          [0m[2;31m┃\n' +
-      '┃ [1;30m> Battle Items      [0m[2;31m┃  [1;37mUltra Ball - 1200 coins         [0m[2;31m┃\n' +
-      '┃ [1;30m> Clothing          [0m[2;31m┃                                    [0m[2;31m┃\n' +
-      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
-      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
-      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
-      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
-      '┃                    [0m[2;31m┃  [1;33mYour Coins: ' + (user.pokecoins || 0).toString().padEnd(18, ' ') + '[0m[2;31m┃\n' +
-      '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
-      '┃ [1;36m> Select a category  [0m[2;31m┃                                    [0m[2;31m┃\n' +
-      '┗━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n' +
-      '\u001b[0m
+    const shopContent = '
