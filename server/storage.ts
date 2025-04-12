@@ -28,24 +28,28 @@ export interface IStorage {
   getUpcomingEvents(): Promise<Event[]>;
   getCommandSections(): Promise<CommandSection[]>;
   createActivity(activity: Omit<InsertActivity, "id">): Promise<Activity>;
-  
+
   // Pokemon related methods
   getPokemonById(id: number): Promise<Pokemon | undefined>;
   getPokemonByUserId(userId: number): Promise<Pokemon[]>;
   createPokemon(pokemon: Omit<InsertPokemon, "id">): Promise<Pokemon>;
-  
+
   // User team methods
   getUserTeam(userId: number): Promise<Pokemon[]>;
   addPokemonToTeam(userId: number, pokemonId: number): Promise<void>;
   removePokemonFromTeam(userId: number, pokemonId: number): Promise<void>;
-  
+
   // Command section methods
   getCommandById(id: number): Promise<Command | undefined>;
   createCommandSection(section: Omit<InsertCommandSection, "id">): Promise<CommandSection>;
   createCommand(command: Omit<InsertCommand, "id">): Promise<Command>;
-  
+
   // Event methods
   createEvent(event: Omit<InsertEvent, "id">): Promise<Event>;
+
+  //Avatar methods
+  getUserAvatar(userId: number): Promise<any>;
+  updateUserAvatar(userId: number, avatarData: any): Promise<void>;
 }
 
 // Implementation using the database
@@ -54,7 +58,7 @@ export class DatabaseStorage implements IStorage {
   async getUser(id: number): Promise<User | undefined> {
     const [dbUser] = await db.select().from(users).where(eq(users.id, id));
     if (!dbUser) return undefined;
-    
+
     // Get user's team
     const team = await this.getUserTeam(id);
     const user: User = { ...dbUser, team };
@@ -64,7 +68,7 @@ export class DatabaseStorage implements IStorage {
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [dbUser] = await db.select().from(users).where(eq(users.username, username));
     if (!dbUser) return undefined;
-    
+
     // Get user's team
     const team = await this.getUserTeam(dbUser.id);
     const user: User = { ...dbUser, team };
@@ -74,7 +78,7 @@ export class DatabaseStorage implements IStorage {
   async getUserByDiscordId(discordId: string): Promise<User | undefined> {
     const [dbUser] = await db.select().from(users).where(eq(users.discordId, discordId));
     if (!dbUser) return undefined;
-    
+
     // Get user's team
     const team = await this.getUserTeam(dbUser.id);
     const user: User = { ...dbUser, team };
@@ -90,7 +94,7 @@ export class DatabaseStorage implements IStorage {
   async getFirstUser(): Promise<User | undefined> {
     const [dbUser] = await db.select().from(users).limit(1);
     if (!dbUser) return undefined;
-    
+
     // Get user's team
     const team = await this.getUserTeam(dbUser.id);
     const user: User = { ...dbUser, team };
@@ -116,13 +120,13 @@ export class DatabaseStorage implements IStorage {
   async getUserTeam(userId: number): Promise<Pokemon[]> {
     const teamEntries = await db.select().from(userTeams)
       .where(eq(userTeams.userId, userId));
-    
+
     if (teamEntries.length === 0) return [];
-    
+
     const pokemonIds = teamEntries.map(entry => entry.pokemonId);
     const teamPokemon = await db.select().from(pokemon)
       .where(inArray(pokemon.id, pokemonIds));
-    
+
     return teamPokemon;
   }
 
@@ -151,11 +155,11 @@ export class DatabaseStorage implements IStorage {
       ...activity,
       timestamp: new Date().toISOString()
     };
-    
+
     const [createdActivity] = await db.insert(activities)
       .values(activityWithTimestamp)
       .returning();
-    
+
     return createdActivity;
   }
 
@@ -173,10 +177,10 @@ export class DatabaseStorage implements IStorage {
   async getCommandSections(): Promise<CommandSection[]> {
     // Get all command sections
     const dbSections = await db.select().from(commandSections);
-    
+
     // Get all commands
     const allCommands = await db.select().from(commands);
-    
+
     // Group commands by section
     const sectionMap = new Map<number, Command[]>();
     allCommands.forEach(command => {
@@ -186,7 +190,7 @@ export class DatabaseStorage implements IStorage {
       }
       sectionMap.get(sectionId)?.push(command);
     });
-    
+
     // Combine sections with their commands
     return dbSections.map(section => ({
       ...section,
@@ -203,7 +207,7 @@ export class DatabaseStorage implements IStorage {
     const [createdSection] = await db.insert(commandSections)
       .values(section)
       .returning();
-    
+
     return { ...createdSection, commands: [] };
   }
 
@@ -211,23 +215,23 @@ export class DatabaseStorage implements IStorage {
     const [createdCommand] = await db.insert(commands)
       .values(command)
       .returning();
-    
+
     return createdCommand;
   }
-  
+
   // Seed method to initialize the database with sample data
   async seedDatabase() {
     // Check if we already have users
     const result = await db.select({ count: sql<number>`count(*)` }).from(users);
     const count = result[0]?.count || 0;
-    
+
     if (count > 0) {
       console.log("Database already seeded.");
       return;
     }
-    
+
     console.log("Seeding database with initial data...");
-    
+
     try {
       // Create command sections first
       const battleSection = await this.createCommandSection({
@@ -235,19 +239,19 @@ export class DatabaseStorage implements IStorage {
         icon: "casino",
         iconColor: "text-pokemon-red"
       });
-      
+
       const pokemonSection = await this.createCommandSection({
         title: "Pokémon",
         icon: "catching_pokemon",
         iconColor: "text-pokemon-blue"
       });
-      
+
       const tournamentSection = await this.createCommandSection({
         title: "Tournaments",
         icon: "emoji_events",
         iconColor: "text-pokemon-yellow"
       });
-      
+
       // Create commands for each section
       await this.createCommand({
         title: "NPC Battles",
@@ -257,7 +261,7 @@ export class DatabaseStorage implements IStorage {
         statusColorClass: "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200",
         sectionId: battleSection.id
       });
-      
+
       await this.createCommand({
         title: "Ranked Battles",
         description: "Battle other trainers to climb the leaderboard",
@@ -266,7 +270,7 @@ export class DatabaseStorage implements IStorage {
         statusColorClass: "bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200",
         sectionId: battleSection.id
       });
-      
+
       await this.createCommand({
         title: "Battles with Sound",
         description: "Experience battles with sound effects",
@@ -275,7 +279,7 @@ export class DatabaseStorage implements IStorage {
         statusColorClass: "bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200",
         sectionId: battleSection.id
       });
-      
+
       await this.createCommand({
         title: "Catch Pokémon",
         description: "Catch Pokémon when they appear in spawns",
@@ -284,7 +288,7 @@ export class DatabaseStorage implements IStorage {
         statusColorClass: "bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200",
         sectionId: pokemonSection.id
       });
-      
+
       await this.createCommand({
         title: "Team Management",
         description: "View and manage your Pokémon team",
@@ -293,7 +297,7 @@ export class DatabaseStorage implements IStorage {
         statusColorClass: "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200",
         sectionId: pokemonSection.id
       });
-      
+
       await this.createCommand({
         title: "Pokémon Storage",
         description: "Access your stored Pokémon",
@@ -302,7 +306,7 @@ export class DatabaseStorage implements IStorage {
         statusColorClass: "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200",
         sectionId: pokemonSection.id
       });
-      
+
       await this.createCommand({
         title: "Create Tournament",
         description: "Create a new tournament for trainers",
@@ -311,7 +315,7 @@ export class DatabaseStorage implements IStorage {
         statusColorClass: "bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200",
         sectionId: tournamentSection.id
       });
-      
+
       await this.createCommand({
         title: "Join Tournament",
         description: "Join an active tournament",
@@ -320,7 +324,7 @@ export class DatabaseStorage implements IStorage {
         statusColorClass: "bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200",
         sectionId: tournamentSection.id
       });
-      
+
       await this.createCommand({
         title: "View Bracket",
         description: "View the current tournament bracket",
@@ -329,7 +333,7 @@ export class DatabaseStorage implements IStorage {
         statusColorClass: "bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200",
         sectionId: tournamentSection.id
       });
-      
+
       // Create events
       await this.createEvent({
         title: "Elite Four Challenge",
@@ -338,7 +342,7 @@ export class DatabaseStorage implements IStorage {
         timeRemaining: "Today",
         colorClass: "border-pokemon-red"
       });
-      
+
       await this.createEvent({
         title: "Water Festival",
         description: "Increased spawns of Water-type Pokémon",
@@ -346,7 +350,7 @@ export class DatabaseStorage implements IStorage {
         timeRemaining: "Tomorrow",
         colorClass: "border-pokemon-blue"
       });
-      
+
       await this.createEvent({
         title: "Regional Tournament",
         description: "Single-elimination tournament with prizes",
@@ -354,7 +358,7 @@ export class DatabaseStorage implements IStorage {
         timeRemaining: "3 days",
         colorClass: "border-pokemon-yellow"
       });
-      
+
       await this.createEvent({
         title: "Safari Zone",
         description: "Special catching event with rare Pokémon",
@@ -362,7 +366,7 @@ export class DatabaseStorage implements IStorage {
         timeRemaining: "Next week",
         colorClass: "border-green-500"
       });
-      
+
       // Create a sample user
       const user = await this.createUser({
         username: "AshKetchum",
@@ -375,7 +379,7 @@ export class DatabaseStorage implements IStorage {
         battleWins: 28,
         tournamentWins: 3
       });
-      
+
       // Create sample Pokémon for the user
       const pikachu = await this.createPokemon({
         name: "Pikachu",
@@ -384,7 +388,7 @@ export class DatabaseStorage implements IStorage {
         imageUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png",
         userId: user.id
       });
-      
+
       const charizard = await this.createPokemon({
         name: "Charizard",
         level: 42,
@@ -392,7 +396,7 @@ export class DatabaseStorage implements IStorage {
         imageUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/6.png",
         userId: user.id
       });
-      
+
       const blastoise = await this.createPokemon({
         name: "Blastoise",
         level: 39,
@@ -400,7 +404,7 @@ export class DatabaseStorage implements IStorage {
         imageUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/9.png",
         userId: user.id
       });
-      
+
       const venusaur = await this.createPokemon({
         name: "Venusaur",
         level: 40,
@@ -408,7 +412,7 @@ export class DatabaseStorage implements IStorage {
         imageUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/3.png",
         userId: user.id
       });
-      
+
       const arcanine = await this.createPokemon({
         name: "Arcanine",
         level: 41,
@@ -416,14 +420,14 @@ export class DatabaseStorage implements IStorage {
         imageUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/59.png",
         userId: user.id
       });
-      
+
       // Add Pokémon to user's team
       await this.addPokemonToTeam(user.id, pikachu.id);
       await this.addPokemonToTeam(user.id, charizard.id);
       await this.addPokemonToTeam(user.id, blastoise.id);
       await this.addPokemonToTeam(user.id, venusaur.id);
       await this.addPokemonToTeam(user.id, arcanine.id);
-      
+
       // Create sample activities
       await this.createActivity({
         type: "catch",
@@ -431,33 +435,79 @@ export class DatabaseStorage implements IStorage {
         timestamp: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
         userId: user.id
       });
-      
+
       await this.createActivity({
         type: "battle",
         description: "You won a battle against TrainerBob!",
         timestamp: new Date(Date.now() - 18000000).toISOString(), // 5 hours ago
         userId: user.id
       });
-      
+
       await this.createActivity({
         type: "evolution",
         description: "Your Charmeleon evolved into Charizard!",
         timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
         userId: user.id
       });
-      
+
       await this.createActivity({
         type: "hatch",
         description: "Your egg hatched into Togepi!",
         timestamp: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
         userId: user.id
       });
-      
+
       console.log("Database seeded successfully!");
     } catch (error) {
       console.error("Error seeding database:", error);
       throw error;
     }
+  }
+
+  async getUserAvatar(userId: number) {
+    const user = await db.select({
+      avatarHeadItem: users.avatarHeadItem,
+      avatarBodyItem: users.avatarBodyItem,
+      avatarLegsItem: users.avatarLegsItem,
+      avatarFeetItem: users.avatarFeetItem,
+      avatarHandsItem: users.avatarHandsItem,
+      avatarAccessoryItem: users.avatarAccessoryItem,
+    }).from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user[0]) return {};
+
+    const avatarItems = await Promise.all([
+      user[0].avatarHeadItem ? db.select().from(pokemon).where(eq(pokemon.id, user[0].avatarHeadItem)).limit(1) : null,
+      user[0].avatarBodyItem ? db.select().from(pokemon).where(eq(pokemon.id, user[0].avatarBodyItem)).limit(1) : null,
+      user[0].avatarLegsItem ? db.select().from(pokemon).where(eq(pokemon.id, user[0].avatarLegsItem)).limit(1) : null,
+      user[0].avatarFeetItem ? db.select().from(pokemon).where(eq(pokemon.id, user[0].avatarFeetItem)).limit(1) : null,
+      user[0].avatarHandsItem ? db.select().from(pokemon).where(eq(pokemon.id, user[0].avatarHandsItem)).limit(1) : null,
+      user[0].avatarAccessoryItem ? db.select().from(pokemon).where(eq(pokemon.id, user[0].avatarAccessoryItem)).limit(1) : null,
+    ]);
+
+    return {
+      head: avatarItems[0]?.[0],
+      body: avatarItems[1]?.[0],
+      legs: avatarItems[2]?.[0],
+      feet: avatarItems[3]?.[0],
+      hands: avatarItems[4]?.[0],
+      accessory: avatarItems[5]?.[0],
+    };
+  }
+
+  async updateUserAvatar(userId: number, avatarData: any) {
+    await db.update(users)
+      .set({
+        avatarHeadItem: avatarData.head?.id || null,
+        avatarBodyItem: avatarData.body?.id || null,
+        avatarLegsItem: avatarData.legs?.id || null,
+        avatarFeetItem: avatarData.feet?.id || null,
+        avatarHandsItem: avatarData.hands?.id || null,
+        avatarAccessoryItem: avatarData.accessory?.id || null,
+      })
+      .where(eq(users.id, userId));
   }
 }
 

@@ -19,6 +19,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/user/avatar', async (req, res) => {
+    try {
+      const userId = 1; // For now, using first user
+      const avatar = await storage.getUserAvatar(userId);
+      res.json(avatar);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch avatar' });
+    }
+  });
+
+  app.put('/api/user/avatar', async (req, res) => {
+    try {
+      const userId = 1; // For now, using first user
+      const avatarData = req.body;
+      await storage.updateUserAvatar(userId, avatarData);
+      res.json({ message: 'Avatar updated successfully' });
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to update avatar' });
+    }
+  });
+
   app.get('/api/activity', async (req, res) => {
     try {
       const activities = await storage.getRecentActivities();
