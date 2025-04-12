@@ -27,7 +27,7 @@ export const users = pgTable("users", {
   tournamentWins: integer("tournament_wins").default(0),
   npcDefeated: integer("npc_defeated").default(0),
   lastActiveAt: text("last_active_at").default(new Date().toISOString()),
-  
+
   // Avatar customization
   avatarHeadItem: integer("avatar_head_item").references(() => avatarItems.id),
   avatarBodyItem: integer("avatar_body_item").references(() => avatarItems.id),
