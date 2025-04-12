@@ -118,7 +118,8 @@ export class BattleService {
     }
 
     // Get a random opponent based on user's Pokemon level
-    const opponentLevel = userPokemon.level + Math.floor(Math.random() * 5) - 2;
+    const pokemonLevel = userPokemon.level || 5;
+    const opponentLevel = pokemonLevel + Math.floor(Math.random() * 5) - 2;
     const adjustedLevel = Math.max(5, opponentLevel); // Minimum level 5
 
     // Generate a random Pokemon ID between 1 and 151 (original 151 Pokemon)
@@ -131,7 +132,7 @@ export class BattleService {
     ]);
 
     // Create battle Pokemon objects
-    const battleUserPokemon = await this.createBattlePokemon(userPokemonData, userPokemon.level);
+    const battleUserPokemon = await this.createBattlePokemon(userPokemonData, pokemonLevel);
     const battleOpponentPokemon = await this.createBattlePokemon(opponentPokemonData, adjustedLevel);
 
     // Create battle state
@@ -379,7 +380,9 @@ export class BattleService {
   /**
    * Create a battle Pokemon object from API data
    */
-  private async createBattlePokemon(pokemonData: PokemonApiData, level: number): Promise<BattlePokemon> {
+  private async createBattlePokemon(pokemonData: PokemonApiData, level: number | null): Promise<BattlePokemon> {
+    // Default to level 5 if level is null
+    const pokemonLevel = level || 5;
     // Get 4 random moves from the Pokemon's move pool
     const moveCount = Math.min(4, pokemonData.moves.length);
     const moveIndices = new Set<number>();
@@ -408,12 +411,12 @@ export class BattleService {
 
     // Calculate HP based on level and base stats
     const baseHp = this.findStat(pokemonData.stats, 'hp');
-    const maxHp = Math.floor((2 * baseHp * level) / 100) + level + 10;
+    const maxHp = Math.floor((2 * baseHp * pokemonLevel) / 100) + pokemonLevel + 10;
 
     return {
       id: pokemonData.id,
       name: this.formatName(pokemonData.name),
-      level,
+      level: pokemonLevel,
       types: pokemonData.types.map(t => t.type.name),
       currentHp: maxHp,
       maxHp,

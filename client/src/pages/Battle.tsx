@@ -8,6 +8,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import { useUserData } from "@/hooks/usePokemonData";
+import type { BattleState } from "@/lib/battleTypes";
 
 export default function Battle() {
   const [battleId, setBattleId] = useState<string | null>(null);
@@ -26,10 +27,10 @@ export default function Battle() {
     isLoading, 
     error, 
     refetch 
-  } = useQuery({
+  } = useQuery<BattleState>({
     queryKey: ['/api/battles', battleId],
     enabled: !!battleId,
-    refetchInterval: battleState?.isUserTurn ? false : 1000, // Poll when it's not user's turn
+    refetchInterval: (data) => data?.isUserTurn ? false : 1000, // Poll when it's not user's turn
   });
 
   // Start battle mutation
