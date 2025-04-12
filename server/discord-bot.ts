@@ -18,6 +18,7 @@ import {
 } from 'discord.js';
 import { Server } from 'http';
 import { log } from './vite';
+import chalk from 'chalk';
 import { storage } from './storage';
 import { battleService, BattleState, BattlePokemon, BattleMove } from './services/battleService';
 import axios from 'axios';
@@ -57,7 +58,34 @@ export async function setupDiscordBot(server: Server): Promise<void> {
 
   // Setup event handlers
   client.on('ready', () => {
+    console.log(chalk.green('🤖 ') + chalk.bold.green(`Discord Bot Online: Logged in as ${client?.user?.tag}!`));
     log(`Logged in as ${client?.user?.tag}!`, 'discord');
+    
+    // Show server information
+    if (client.guilds.cache.size > 0) {
+      console.log(chalk.cyan('🌐 Connected to the following servers:'));
+      client.guilds.cache.forEach(guild => {
+        console.log(chalk.cyan(`   - ${guild.name} (${guild.memberCount} members)`));
+      });
+    } else {
+      console.log(chalk.yellow('⚠️ Not connected to any Discord servers yet'));
+      console.log(chalk.yellow('   To add your bot to a server, use this link:'));
+      if (client.user) {
+        const inviteLink = `https://discord.com/api/oauth2/authorize?client_id=${client.user.id}&permissions=8&scope=bot`;
+        console.log(chalk.blue(`   ${inviteLink}`));
+      }
+    }
+    
+    // Set the bot's presence
+    if (client && client.user) {
+      client.user.setPresence({
+        status: 'online',
+        activities: [{
+          name: '!help | Pokémon Battles',
+          type: 0 // Playing
+        }]
+      });
+    }
   });
 
   // Handle message events
@@ -67,6 +95,22 @@ export async function setupDiscordBot(server: Server): Promise<void> {
 
     const content = message.content.trim().toLowerCase();
     const args = content.split(' ');
+    
+    // Log messages to console with pretty formatting
+    const channel = message.channel;
+    const channelName = channel.type === ChannelType.DM ? "DM" : 
+                       'name' in channel ? channel.name : "Unknown Channel";
+    const guildName = message.guild?.name || "DM";
+    
+    // Only log command messages (starting with !)
+    if (content.startsWith('!')) {
+      console.log(
+        chalk.gray(`[${new Date().toLocaleTimeString()}] `) +
+        chalk.blue(`${guildName} #${channelName} `) + 
+        chalk.yellow(`@${message.author.username}: `) + 
+        chalk.green(content)
+      );
+    }
 
     // Battle command
     if (args[0] === COMMANDS.BATTLE) {
@@ -95,6 +139,22 @@ export async function setupDiscordBot(server: Server): Promise<void> {
     if (!interaction.isButton()) return;
     
     const [action, battleId, moveIndex] = interaction.customId.split('_');
+    
+    // Log button interactions to console
+    const username = interaction.user?.username || "Unknown User";
+    const channel = interaction.channel;
+    const channelName = !channel ? "Unknown Channel" : 
+                       channel.type === ChannelType.DM ? "DM" : 
+                       'name' in channel ? channel.name : "Unknown Channel";
+    const guildName = interaction.guild?.name || "Unknown Server";
+    
+    console.log(
+      chalk.gray(`[${new Date().toLocaleTimeString()}] `) +
+      chalk.magenta(`${guildName} #${channelName} `) + 
+      chalk.cyan(`@${username} clicked: `) + 
+      chalk.redBright(`${action}`) +
+      (action === 'move' ? chalk.yellow(` (move index: ${moveIndex})`) : '')
+    );
     
     if (action === 'move') {
       await handleMoveButton(interaction, battleId, parseInt(moveIndex));
@@ -529,7 +589,7 @@ async function handleTeamCommand(message: Message): Promise<void> {
     team.forEach((pokemon, index) => {
       embed.addFields({
         name: `#${index + 1}: ${pokemon.name} (Lv. ${pokemon.level})`,
-        value: `Type: ${pokemon.types.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join('/')}\nID: ${pokemon.id}`
+        value: `Type: ${pokemon.types ? pokemon.types.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join('/') : 'Unknown'}\nID: ${pokemon.id}`
       });
     });
 
