@@ -839,7 +839,7 @@ async function handleDexCommand(message: Message): Promise<void> {
       '┃  [1;34m/\\[1;37m_[1;34m/\\                         [0m[2;31m┃\n' +
       '┃  [1;33mLevel: [1;32m' + (user.trainerLevel || 1).toString().padEnd(22, ' ') + '[0m[2;31m┃ ' +
       '┃  [1;34m|  o o  |                      [0m[2;31m┃\n' +
-      '┃  [1;33mCoins: [1';
+      ';
 
     // Live View Section (Bottom)
     const liveViewHeader = '```ansi\n[2;31m' +
@@ -911,7 +911,7 @@ async function handleDexCommand(message: Message): Promise<void> {
     await message.reply('I\'ve sent you a Pokédex console in your DMs!');
 
   } catch (error) {
-    console.error('Error in dex command:', error);
+    console.error('Error in handleDexCommand:', error);
     const errorMessage = error.code === 50007 
       ? "I couldn't send you a DM! Please enable direct messages in your Discord privacy settings:\n1. Right-click the server name\n2. Click 'Privacy Settings'\n3. Enable 'Direct Messages'\n\nThen use `!dms` to verify DMs are working before trying `!dex` again."
       : 'An unexpected error occurred while opening the Pokédex console. Please try again later.';
@@ -1245,4 +1245,4 @@ async function handleDexShopButton(interaction: ButtonInteraction): Promise<void
       '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
       '┃ [1;36m> Select a category  [0m[2;31m┃                                    [0m[2;31m┃\n' +
       '┗━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n' +
-      '\u001b[0m```';
+      '\u001b[0m
