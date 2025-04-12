@@ -10,7 +10,7 @@ import {
   TooltipTrigger 
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { BattlePokemon, BattleMove, BattleState } from "../../../server/services/battleService";
+import { BattlePokemon, BattleMove, BattleState } from "@/lib/battleTypes";
 
 interface BattleInterfaceProps {
   battleState: BattleState;

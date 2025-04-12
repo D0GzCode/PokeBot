@@ -1,13 +1,18 @@
 import React from "react";
 import { Pokemon } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { useLocation } from "wouter";
+import { Sword } from "lucide-react";
 
 interface PokemonCardProps {
   pokemon?: Pokemon;
   isAddCard?: boolean;
   onClick?: () => void;
+  showBattleButton?: boolean;
 }
 
-const PokemonCard: React.FC<PokemonCardProps> = ({ pokemon, isAddCard, onClick }) => {
+const PokemonCard: React.FC<PokemonCardProps> = ({ pokemon, isAddCard, onClick, showBattleButton = false }) => {
+  const [_, setLocation] = useLocation();
   const getTypeColorClass = (type: string) => {
     const typeColors: Record<string, string> = {
       electric: "bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200",
@@ -47,6 +52,13 @@ const PokemonCard: React.FC<PokemonCardProps> = ({ pokemon, isAddCard, onClick }
 
   if (!pokemon) return null;
 
+  const handleBattleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (pokemon) {
+      setLocation(`/battle/${pokemon.id}`);
+    }
+  };
+
   return (
     <div className="bg-gray-50 dark:bg-dark-300 rounded-lg p-3 relative">
       <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-pokemon-red text-white text-xs flex items-center justify-center font-medium">
@@ -66,6 +78,16 @@ const PokemonCard: React.FC<PokemonCardProps> = ({ pokemon, isAddCard, onClick }
             </span>
           ))}
         </div>
+        
+        {showBattleButton && (
+          <Button 
+            size="sm" 
+            className="mt-2 w-full bg-red-600 hover:bg-red-700 text-white"
+            onClick={handleBattleClick}
+          >
+            <Sword className="h-4 w-4 mr-1" /> Battle
+          </Button>
+        )}
       </div>
     </div>
   );
