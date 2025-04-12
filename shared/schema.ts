@@ -20,6 +20,7 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
   discordId: text("discord_id").notNull().unique(),
   avatar: text("avatar"),
+  consoleUrl: text("console_url"),
   trainerLevel: integer("trainer_level").default(1),
   pokecoins: integer("pokecoins").default(0),
   pokemonCaught: integer("pokemon_caught").default(0),

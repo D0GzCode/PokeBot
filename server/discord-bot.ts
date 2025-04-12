@@ -910,12 +910,14 @@ async function handleRegisterCommand(message: Message): Promise<void> {
       return;
     }
     
-    // Create a new user
+    // Create a new user with console URL
+    const consoleUrl = `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/console/${message.author.id}`;
     const user = await storage.createUser({
       username: message.author.username,
       password: 'password123', // Default password, not really used for Discord users
       discordId: message.author.id,
       avatar: message.author.displayAvatarURL(),
+      consoleUrl: consoleUrl,
     });
     
     // Create a welcome message
