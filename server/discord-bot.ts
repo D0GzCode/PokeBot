@@ -1245,4 +1245,4 @@ async function handleDexShopButton(interaction: ButtonInteraction): Promise<void
       '┃                    [0m[2;31m┃                                    [0m[2;31m┃\n' +
       '┃ [1;36m> Select a category  [0m[2;31m┃                                    [0m[2;31m┃\n' +
       '┗━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n' +
-      '\u001b[0m
+      '\u001b[0m```';
