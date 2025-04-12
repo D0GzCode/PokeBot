@@ -842,13 +842,7 @@ async function handleDexCommand(message: Message): Promise<void> {
       ';
 
     // Live View Section (Bottom)
-    const liveViewHeader = '```ansi\n[2;31m' +
-      '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
-      '┃  [1;37mLIVE VIEW                                             [0m[2;31m┃\n' +
-      '┣━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
-      '┃  [1;33mCHANNEL FEED      [0m[2;31m┃  [1;33mBATTLE SCREEN                   [0m[2;31m┃\n' +
-      '┣━━━━━━━━━━━━━━━━━━━┫━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n' +
-      '\u001b[0m```';
+    const liveViewHeader = '```ansi\n[2';
 
     // Channel Feed (recent messages)
     const channelFeed = '```ansi\n[2;31m' +
