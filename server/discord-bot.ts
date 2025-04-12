@@ -30,7 +30,8 @@ const COMMANDS = {
   REGISTER: '!register', // User registration command
   AVATAR: '!avatar',  // Avatar item management
   SHOP: '!shop',     // Shop for avatar items and Pokéballs
-  NPC: '!npc'        // Challenge NPC trainers
+  NPC: '!npc',        // Challenge NPC trainers
+  DMS: '!dms'       // Check DM settings
 };
 
 // Create Discord client
@@ -157,6 +158,16 @@ export async function setupDiscordBot(server: Server): Promise<void> {
     // NPC battle command
     else if (content === COMMANDS.NPC) {
       await handleNpcCommand(message);
+    }
+    // DMs check command
+    else if (content === COMMANDS.DMS) {
+      try {
+        const dmChannel = await message.author.createDM();
+        await dmChannel.send("✅ Your DMs are enabled! You can receive messages from me.");
+        await message.reply("I've sent you a test message. If you received it, your DMs are properly enabled!");
+      } catch (error) {
+        await message.reply("❌ I couldn't send you a DM. Please enable direct messages in your Discord privacy settings:\n1. Right-click the server name\n2. Click 'Privacy Settings'\n3. Enable 'Direct Messages'");
+      }
     }
   });
 
@@ -734,7 +745,8 @@ async function handleHelpCommand(message: Message): Promise<void> {
       { name: '!avatar', value: 'Manage your avatar items and appearance.' },
       { name: '!shop', value: 'Visit the shop to buy items and Pokéballs.' },
       { name: '!npc', value: 'Challenge NPC trainers to earn rewards.' },
-      { name: '!help', value: 'Display this help message.' }
+      { name: '!help', value: 'Display this help message.' },
+      { name: '!dms', value: 'Check if your DMs are enabled for the bot.' }
     )
     .setFooter({ text: 'Made with ❤️ by Dogmail420' });
   
