@@ -884,7 +884,10 @@ async function handleDexCommand(message: Message): Promise<void> {
     
   } catch (error) {
     console.error('Error in dex command:', error);
-    await message.reply('An error occurred while opening the Pokédex console. Please make sure you have DMs enabled.');
+    const errorMessage = error.code === 50007 
+      ? "I couldn't send you a DM! Please enable direct messages in your Discord privacy settings:\n1. Right-click the server name\n2. Click 'Privacy Settings'\n3. Enable 'Direct Messages'\n\nThen use `!dms` to verify DMs are working before trying `!dex` again."
+      : 'An unexpected error occurred while opening the Pokédex console. Please try again later.';
+    await message.reply(errorMessage);
   }
 }
 
