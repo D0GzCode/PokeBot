@@ -134,7 +134,7 @@ const Dashboard: React.FC = () => {
               ) : (
                 <>
                   {user?.team.map((pokemon) => (
-                    <PokemonCard key={pokemon.id} pokemon={pokemon} />
+                    <PokemonCard key={pokemon.id} pokemon={pokemon} showBattleButton={true} />
                   ))}
                   <PokemonCard isAddCard onClick={handleAddPokemon} />
                 </>

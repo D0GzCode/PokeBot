@@ -48,6 +48,14 @@ app.use((req, res, next) => {
     }
     
     const server = await registerRoutes(app);
+    
+    // Setup Discord bot
+    if (process.env.DISCORD_TOKEN) {
+      log("Initializing Discord bot...");
+      setupDiscordBot(server);
+    } else {
+      log("Discord bot not initialized (missing DISCORD_TOKEN)");
+    }
 
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       const status = err.status || err.statusCode || 500;

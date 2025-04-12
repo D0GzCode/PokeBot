@@ -326,7 +326,7 @@ function createOpponentEmbed(battleState: BattleState): EmbedBuilder {
   
   return new EmbedBuilder()
     .setTitle(`Wild ${pokemon.name} (Lv. ${pokemon.level})`)
-    .setDescription(`Type: ${pokemon.types.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join('/')}`)
+    .setDescription(`Type: ${pokemon.types ? pokemon.types.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join('/') : 'Unknown'}`)
     .setThumbnail(pokemon.imageUrlFront)
     .addFields(
       { name: 'HP', value: `${pokemon.currentHp}/${pokemon.maxHp}` },
@@ -352,7 +352,7 @@ function createUserEmbed(battleState: BattleState): EmbedBuilder {
   
   return new EmbedBuilder()
     .setTitle(`Your ${pokemon.name} (Lv. ${pokemon.level})`)
-    .setDescription(`Type: ${pokemon.types.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join('/')}`)
+    .setDescription(`Type: ${pokemon.types ? pokemon.types.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join('/') : 'Unknown'}`)
     .setThumbnail(pokemon.imageUrlBack)
     .addFields(
       { name: 'HP', value: `${pokemon.currentHp}/${pokemon.maxHp}` },
